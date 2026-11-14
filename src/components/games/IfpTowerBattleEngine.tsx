@@ -14,8 +14,8 @@ interface ArabicPrompt {
 interface TowerBattleConfig {
   subtitle: string;
   durationSeconds: number;
-  leftTeam: { name: string; targetCategory: 'MUDZAKKAR' | 'MUANNATS' };
-  rightTeam: { name: string; targetCategory: 'MUDZAKKAR' | 'MUANNATS' };
+  leftTeam: { name: string; targetCategory: 'MUDZAKKAR' | 'MUANNATS'; buttonLabel?: string };
+  rightTeam: { name: string; targetCategory: 'MUDZAKKAR' | 'MUANNATS'; buttonLabel?: string };
   prompts: ArabicPrompt[];
 }
 
@@ -106,7 +106,7 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
         const nextScore = leftScore + 25;
         setRightHp(nextHp);
         setLeftScore(nextScore);
-        setStatusBanner(`${config.leftTeam.name} menembak tepat! "${currentPrompt.translit}" adalah Mudzakkar.`);
+        setStatusBanner(`${config.leftTeam.name} menembak tepat! "${currentPrompt.translit}"`);
         if (nextHp <= 0) {
           playTone('victory', isMuted);
           setGameState('gameover');
@@ -118,7 +118,7 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
         const nextScore = rightScore + 25;
         setLeftHp(nextHp);
         setRightScore(nextScore);
-        setStatusBanner(`${config.rightTeam.name} menembak tepat! "${currentPrompt.translit}" adalah Muannats.`);
+        setStatusBanner(`${config.rightTeam.name} menembak tepat! "${currentPrompt.translit}"`);
         if (nextHp <= 0) {
           playTone('victory', isMuted);
           setGameState('gameover');
@@ -130,10 +130,10 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
       playTone('wrong', isMuted);
       if (team === 'LEFT') {
         setLeftHp((hp) => Math.max(10, hp - 10));
-        setStatusBanner(`Meleset! "${currentPrompt.translit}" termasuk Muannats (memiliki Ta Marbuthah).`);
+        setStatusBanner(`Meleset! "${currentPrompt.translit}" adalah target ${config.rightTeam.name}.`);
       } else {
         setRightHp((hp) => Math.max(10, hp - 10));
-        setStatusBanner(`Meleset! "${currentPrompt.translit}" termasuk Mudzakkar.`);
+        setStatusBanner(`Meleset! "${currentPrompt.translit}" adalah target ${config.leftTeam.name}.`);
       }
     }
 
@@ -255,7 +255,7 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
                 {config.leftTeam.name}
               </span>
               <span className="mt-1 text-sm sm:text-base font-semibold text-emerald-200">
-                TEMBAK (MUDZAKKAR)
+                {config.leftTeam.buttonLabel || 'TEMBAK (MUDZAKKAR)'}
               </span>
             </button>
 
@@ -269,7 +269,7 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
                 {config.rightTeam.name}
               </span>
               <span className="mt-1 text-sm sm:text-base font-semibold text-sky-200">
-                TEMBAK (MUANNATS)
+                {config.rightTeam.buttonLabel || 'TEMBAK (MUANNATS)'}
               </span>
             </button>
           </div>

@@ -5,12 +5,12 @@ import { useTenantAndDemo } from '../../context/TenantAndDemoContext';
 import { SchoolCrestLogo } from './SchoolCrestLogo';
 
 export function Navbar() {
-  const { config, roleProfile, language, isInCbtRoom, isInGameArena } = useTenantAndDemo();
+  const { config, roleProfile, authSession, language, isInCbtRoom, isInGameArena } = useTenantAndDemo();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  // Hide global top bar in Zen CBT Exam Room and immersive Game Arena Shell
-  if (isInCbtRoom || isInGameArena) {
+  // Hide global top bar on /login, Zen CBT Exam Room and immersive Game Arena Shell
+  if (isInCbtRoom || isInGameArena || location.pathname === '/login') {
     return null;
   }
 
@@ -33,6 +33,15 @@ export function Navbar() {
 
   const isActive = (to: string) =>
     to === '/' ? location.pathname === '/' : location.pathname.startsWith(to);
+
+  const primaryCtaTo = authSession?.isAuthenticated ? roleProfile.defaultRoute : '/login';
+  const primaryCtaLabel = authSession?.isAuthenticated
+    ? language === 'en'
+      ? 'Open Portal'
+      : 'Buka Portal'
+    : language === 'en'
+    ? 'Sign In'
+    : 'Masuk / Login';
 
   return (
     <header className="no-print print:hidden sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
@@ -70,10 +79,10 @@ export function Navbar() {
         {/* Zone 3: 1 Primary CTA (plus mobile menu button on <768px only) */}
         <div className="flex items-center gap-2 shrink-0">
           <Link
-            to={roleProfile.defaultRoute}
+            to={primaryCtaTo}
             className="inline-flex items-center justify-center rounded-lg bg-brand-primary px-4 py-2 text-sm font-semibold text-brand-primary-fg shadow-xs transition-opacity hover:opacity-90 whitespace-nowrap shrink-0"
           >
-            {language === 'en' ? 'Open Portal' : 'Masuk Portal'}
+            {primaryCtaLabel}
           </Link>
 
           <button
@@ -113,6 +122,13 @@ export function Navbar() {
             className="block rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             E-Rapor & QR Vault
+          </Link>
+          <Link
+            to="/login"
+            onClick={() => setMobileOpen(false)}
+            className="block rounded-lg px-3 py-2 text-sm font-medium text-brand-primary hover:bg-slate-50"
+          >
+            Halaman Login Multi-Role
           </Link>
         </nav>
       )}

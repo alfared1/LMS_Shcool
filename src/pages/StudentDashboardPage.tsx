@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Award, Flame, Gamepad2, ShieldCheck, BookOpen, FileBadge2 } from 'lucide-react';
 import { SEED_GAMES, SEED_MATERIALS, SEED_REPORT_CARD } from '../lib/seed-data';
-import type { EducationalGame, ReportCardDTO } from '../types/lms';
+import { useTenantAndDemo } from '../context/TenantAndDemoContext';
+import type { EducationalGame, LearningMaterial, ReportCardDTO } from '../types/lms';
 
 const CLASS_LEADERBOARD = [
   { rank: 1, name: 'Ahmad Fauzi', className: 'X-IPA-1', xp: 2480 },
@@ -13,19 +14,31 @@ const CLASS_LEADERBOARD = [
 ];
 
 export function StudentDashboardPage() {
-  const [games, setGames] = useState<EducationalGame[]>(SEED_GAMES);
+  const { uploadedMaterials, aiGames } = useTenantAndDemo();
+  const [serverGames, setServerGames] = useState<EducationalGame[]>(SEED_GAMES);
+  const [serverMaterials, setServerMaterials] = useState<LearningMaterial[]>(SEED_MATERIALS);
   const [rapor, setRapor] = useState<ReportCardDTO>(SEED_REPORT_CARD);
 
   useEffect(() => {
     fetch('/api/games')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => Array.isArray(d) && d.length && setGames(d))
+      .then((d) => Array.isArray(d) && d.length && setServerGames(d))
+      .catch(() => undefined);
+    fetch('/api/materials')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => Array.isArray(d) && d.length && setServerMaterials(d))
       .catch(() => undefined);
     fetch('/api/erapor')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && d.grades && setRapor(d))
       .catch(() => undefined);
   }, []);
+
+  const games = [...aiGames, ...serverGames.filter((g) => !aiGames.some((a) => a.slug === g.slug))];
+  const recentMaterials = [
+    ...uploadedMaterials,
+    ...serverMaterials.filter((m) => !uploadedMaterials.some((u) => u.slug === m.slug)),
+  ];
 
   // Build SVG Radar Chart polygon points for top 5 subjects
   const radarSubjects = rapor.grades.slice(0, 5);
@@ -132,7 +145,7 @@ export function StudentDashboardPage() {
               </Link>
             </div>
             <div className="mt-4 divide-y divide-slate-100">
-              {SEED_MATERIALS.slice(0, 3).map((m) => (
+              {recentMaterials.slice(0, 3).map((m) => (
                 <div key={m.id} className="flex items-center justify-between gap-4 py-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <BookOpen className="h-5 w-5 shrink-0 text-brand-secondary" />

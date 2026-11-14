@@ -9,7 +9,10 @@ import {
   validateVaultPassword,
   formatCountdown,
 } from './core-logic';
-import type { ServerExamQuestion } from '../types/lms';
+import type { ServerExamQuestion, GameEngineType } from '../types/lms';
+import { authenticateDemoAccount, DEMO_ACCOUNT_LIST, resolveSafeRole } from './auth-users';
+import { formatFileSize } from './pdf-helper';
+import { generateSmartGameConfig } from './ai-game-generator';
 
 test('deterministicShuffle produces stable output for same seed and different for different seeds', () => {
   const items = ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'];
@@ -100,4 +103,60 @@ test('password entropy and vault regex validator enforce cybersecurity rules', (
 test('formatCountdown formats HH:MM:SS cleanly', () => {
   assert.equal(formatCountdown(3661), '01:01:01');
   assert.equal(formatCountdown(-5), '00:00:00');
+});
+
+test('multi-role auth supports all 5 roles and rejects wrong credentials', () => {
+  assert.equal(DEMO_ACCOUNT_LIST.length, 5);
+  const teacher = authenticateDemoAccount('guru.hendra', 'Guru2026!');
+  assert.equal(teacher?.role, 'TEACHER');
+
+  const parent = authenticateDemoAccount('wali.fauzi', 'Wali2026!');
+  assert.equal(parent?.role, 'PARENT');
+
+  const invalid = authenticateDemoAccount('guru.hendra', 'salah');
+  assert.equal(invalid, null);
+
+  assert.equal(resolveSafeRole('PROCTOR'), 'OPERATIONAL');
+  assert.equal(resolveSafeRole('SUPER_ADMIN'), 'SCHOOL_ADMIN');
+});
+
+test('formatFileSize formats bytes cleanly into KB and MB', () => {
+  assert.equal(formatFileSize(512), '512 B');
+  assert.equal(formatFileSize(2048), '2.0 KB');
+  assert.equal(formatFileSize(2 * 1024 * 1024), '2.00 MB');
+});
+
+test('generateSmartGameConfig produces valid engine schemas for all 5 game engines', () => {
+  const engines: GameEngineType[] = [
+    'MILLIONAIRE_QUIZ',
+    'SWIPE_CARD',
+    'IFP_TOWER_BATTLE',
+    'TURN_BASED_ARENA',
+    'ROLEPLAY_LKPD',
+  ];
+  for (const engineType of engines) {
+    const result = generateSmartGameConfig({
+      prompt: 'Fotosintesis pada tumbuhan hijau dan reaksi terang klorofil',
+      engineType,
+      level: 'SMA',
+      gradeLevel: 11,
+      subjectName: 'Biologi',
+      difficulty: 'Sedang',
+    });
+    assert.ok(result.title.length > 5);
+    assert.ok(result.config && typeof result.config === 'object');
+    if (engineType === 'MILLIONAIRE_QUIZ' || engineType === 'TURN_BASED_ARENA') {
+      assert.ok(Array.isArray((result.config as { questions: unknown[] }).questions));
+      assert.ok((result.config as { questions: unknown[] }).questions.length >= 4);
+    }
+    if (engineType === 'SWIPE_CARD') {
+      assert.ok(Array.isArray((result.config as { cards: unknown[] }).cards));
+    }
+    if (engineType === 'IFP_TOWER_BATTLE') {
+      assert.ok(Array.isArray((result.config as { prompts: unknown[] }).prompts));
+    }
+    if (engineType === 'ROLEPLAY_LKPD') {
+      assert.ok(Array.isArray((result.config as { phishingCases: unknown[] }).phishingCases));
+    }
+  }
 });

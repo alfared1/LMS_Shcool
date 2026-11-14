@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, Search } from 'lucide-react';
+import { Play, Search, Sparkles } from 'lucide-react';
 import { SEED_GAMES } from '../lib/seed-data';
+import { useTenantAndDemo } from '../context/TenantAndDemoContext';
 import type { EducationalGame } from '../types/lms';
 
 const ENGINE_LABELS: Record<EducationalGame['engineType'], string> = {
@@ -13,7 +14,8 @@ const ENGINE_LABELS: Record<EducationalGame['engineType'], string> = {
 };
 
 export function GamesCatalogPage() {
-  const [games, setGames] = useState<EducationalGame[]>(SEED_GAMES);
+  const { aiGames } = useTenantAndDemo();
+  const [serverGames, setServerGames] = useState<EducationalGame[]>(SEED_GAMES);
   const [level, setLevel] = useState<'ALL' | 'SMP' | 'SMA'>('ALL');
   const [grade, setGrade] = useState<number | 'ALL'>('ALL');
   const [query, setQuery] = useState('');
@@ -22,10 +24,23 @@ export function GamesCatalogPage() {
     fetch('/api/games')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
-        if (Array.isArray(data) && data.length > 0) setGames(data);
+        if (Array.isArray(data) && data.length > 0) setServerGames(data);
       })
       .catch(() => undefined);
   }, []);
+
+  const games = useMemo(() => {
+    const map = new Map<string, EducationalGame>();
+    for (const g of aiGames) {
+      map.set(g.slug, g);
+    }
+    for (const g of serverGames) {
+      if (!map.has(g.slug)) {
+        map.set(g.slug, g);
+      }
+    }
+    return Array.from(map.values());
+  }, [aiGames, serverGames]);
 
   const filtered = games.filter((g) => {
     if (level !== 'ALL' && g.level !== level) return false;
@@ -47,7 +62,7 @@ export function GamesCatalogPage() {
         <div>
           <h1 className="text-3xl font-extrabold text-slate-900">Katalog Game & LKPD Interaktif</h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            Pilih permainan edukasi sesuai jenjang, kelas, atau mata pelajaran. Mendukung layar sentuh IFP kelas.
+            Pilih permainan edukasi sesuai jenjang, kelas, atau mata pelajaran. Mendukung layar sentuh IFP kelas & game rakitan AI Studio.
           </p>
         </div>
 
@@ -135,14 +150,22 @@ export function GamesCatalogPage() {
               className="flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6"
             >
               <div>
-                <div className="flex items-center gap-2 text-xs text-slate-500">
-                  <span className="font-semibold text-brand-primary">
-                    {ENGINE_LABELS[game.engineType]}
-                  </span>
-                  <span aria-hidden="true">·</span>
-                  <span>
-                    {game.level} Kelas {game.gradeLevel}
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-brand-primary">
+                      {ENGINE_LABELS[game.engineType]}
+                    </span>
+                    <span aria-hidden="true">·</span>
+                    <span>
+                      {game.level} Kelas {game.gradeLevel}
+                    </span>
+                  </div>
+                  {game.isAiGenerated && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-brand-primary/10 px-2 py-0.5 text-[11px] font-bold text-brand-primary">
+                      <Sparkles className="h-3 w-3" />
+                      <span>Dibuat dengan AI Studio</span>
+                    </span>
+                  )}
                 </div>
                 <h2 className="mt-2.5 text-lg font-bold text-slate-900">{game.title}</h2>
                 <p className="mt-1 text-sm text-slate-600">

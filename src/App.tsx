@@ -18,6 +18,8 @@ import { ProctorDashboardPage } from './pages/ProctorDashboardPage';
 import { WhiteLabelAdminPage } from './pages/WhiteLabelAdminPage';
 import { EraporPage } from './pages/EraporPage';
 import { VerifyHashPage } from './pages/VerifyHashPage';
+import { LoginPage } from './pages/LoginPage';
+import { ParentDashboardPage } from './pages/ParentDashboardPage';
 
 function AppShell() {
   const { isInCbtRoom, isInGameArena, config } = useTenantAndDemo();
@@ -36,6 +38,8 @@ function AppShell() {
     );
   }
 
+  const isLoginPage = location.pathname === '/login';
+
   return (
     <div className="flex min-h-screen flex-col">
       <Navbar />
@@ -44,6 +48,7 @@ function AppShell() {
         <main className="flex-1 min-w-0">
           <Routes>
             <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
             <Route path="/games" element={<GamesCatalogPage />} />
             <Route path="/games/:slug" element={<GamePlayerPage />} />
             <Route path="/materials" element={<MaterialsPage />} />
@@ -54,6 +59,7 @@ function AppShell() {
             <Route path="/dashboard/teacher" element={<TeacherDashboardPage />} />
             <Route path="/dashboard/proctor" element={<ProctorDashboardPage />} />
             <Route path="/dashboard/admin/white-label" element={<WhiteLabelAdminPage />} />
+            <Route path="/dashboard/parent" element={<ParentDashboardPage />} />
             <Route path="/erapor" element={<EraporPage />} />
             <Route path="/verify/:hash" element={<VerifyHashPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
@@ -61,8 +67,8 @@ function AppShell() {
         </main>
       </div>
 
-      {!isInCbtRoom && !isInGameArena && (
-        <footer className="no-print print:hidden border-t border-slate-200 bg-white px-6 py-5 text-xs text-slate-500">
+      {!isInCbtRoom && !isInGameArena && !isLoginPage && (
+        <footer className="no-print print:hidden border-t border-slate-200 bg-white px-6 pt-5 pb-16 text-xs text-slate-500">
           <div className="mx-auto flex max-w-[1360px] flex-wrap items-center justify-between gap-3">
             <span>
               {config.schoolName} · NPSN {config.npsn}
@@ -73,7 +79,7 @@ function AppShell() {
       )}
 
       <DemoPresentationBar />
-      <FloatingAiTutorDrawer />
+      {!isLoginPage && <FloatingAiTutorDrawer />}
     </div>
   );
 }

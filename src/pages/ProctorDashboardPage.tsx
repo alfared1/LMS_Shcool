@@ -1,10 +1,17 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { CheckCircle2, Clock, LockOpen, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
+import { CalendarDays, CheckCircle2, Clock, LockOpen, Plus, Radar, RefreshCw, ShieldAlert } from 'lucide-react';
 import type { AuditLogDTO, ExamAttemptDTO } from '../types/lms';
 import { formatCountdown } from '../lib/core-logic';
 import { clearLiveCbtSyncEntry, mergeAttemptWithLiveSync } from '../lib/cbt-sync';
 
+const ROOM_SCHEDULES = [
+  { room: 'Lab Komputer 01', subject: 'UAS Informatika', classGroup: 'X-IPA-1', time: '07:30 - 09:00 WIB', proctor: 'Ibu Rina, S.Pd', status: 'Berlangsung' },
+  { room: 'Lab Komputer 02', subject: 'UAS Matematika Lanjut', classGroup: 'XI-IPA-2', time: '09:30 - 11:00 WIB', proctor: 'Bpk. Fajar, S.Kom', status: 'Persiapan Token' },
+  { room: 'Ruang IFP Smartboard 03', subject: 'Simulasi Bahasa Arab', classGroup: 'XI-AGM-1', time: '11:30 - 12:30 WIB', proctor: 'Ustadz Farhan', status: 'Terjadwal' },
+];
+
 export function ProctorDashboardPage() {
+  const [opsTab, setOpsTab] = useState<'cbt' | 'schedule'>('cbt');
   const [examId, setExamId] = useState('uas-informatika-2026');
   const [examTitle, setExamTitle] = useState('Ujian Akhir Semester (UAS) Ganjil - Informatika');
   const [dynamicToken, setDynamicToken] = useState('UJIAN26');
@@ -166,7 +173,69 @@ export function ProctorDashboardPage() {
         </div>
       )}
 
-      {/* Filter Tabs */}
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-1 rounded-lg bg-slate-100 p-1">
+          <button
+            type="button"
+            onClick={() => setOpsTab('cbt')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-xs font-semibold ${
+              opsTab === 'cbt' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+            }`}
+          >
+            <Radar className="h-3.5 w-3.5" />
+            <span>Monitoring & Kontrol CBT</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpsTab('schedule')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-xs font-semibold ${
+              opsTab === 'schedule' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+            }`}
+          >
+            <CalendarDays className="h-3.5 w-3.5" />
+            <span>Jadwal Ruang Kelas</span>
+          </button>
+        </div>
+      </div>
+
+      {opsTab === 'schedule' && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Jadwal Ruang Kelas & Laboratorium Komputer</h2>
+            <p className="text-xs text-slate-500">Koordinasi ruang ujian CBT dan sesi pembelajaran interaktif IFP hari ini.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs text-slate-500">
+                  <th className="py-3 pr-4">Ruangan</th>
+                  <th className="py-3 px-3">Agenda / Ujian</th>
+                  <th className="py-3 px-3">Kelas</th>
+                  <th className="py-3 px-3">Waktu</th>
+                  <th className="py-3 px-3">Pengawas</th>
+                  <th className="py-3 pl-3 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {ROOM_SCHEDULES.map((r) => (
+                  <tr key={r.room} className="hover:bg-slate-50">
+                    <td className="py-3 pr-4 font-semibold text-slate-900">{r.room}</td>
+                    <td className="py-3 px-3 text-slate-700">{r.subject}</td>
+                    <td className="py-3 px-3 font-mono text-xs text-slate-600">{r.classGroup}</td>
+                    <td className="py-3 px-3 font-mono text-xs text-slate-600">{r.time}</td>
+                    <td className="py-3 px-3 text-xs text-slate-700">{r.proctor}</td>
+                    <td className="py-3 pl-3 text-right font-semibold text-xs text-brand-primary">{r.status}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {opsTab === 'cbt' && (
+        <>
+          {/* Filter Tabs */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
           {([
@@ -344,6 +413,8 @@ export function ProctorDashboardPage() {
           </table>
         </div>
       </section>
+        </>
+      )}
     </div>
   );
 }

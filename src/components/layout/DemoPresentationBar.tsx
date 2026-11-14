@@ -1,4 +1,5 @@
-import { SlidersHorizontal, X, Volume2, VolumeX, Globe, UserCheck } from 'lucide-react';
+import { SlidersHorizontal, X, Volume2, VolumeX, Globe, UserCheck, LogOut } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import { DEMO_ROLES, useTenantAndDemo } from '../../context/TenantAndDemoContext';
 import { WHITE_LABEL_PRESETS } from '../../lib/seed-data';
 import type { DemoRole } from '../../types/lms';
@@ -7,6 +8,7 @@ export function DemoPresentationBar() {
   const {
     activeRole,
     setActiveRole,
+    logout,
     language,
     setLanguage,
     isMuted,
@@ -18,16 +20,18 @@ export function DemoPresentationBar() {
     isInCbtRoom,
     isInGameArena,
   } = useTenantAndDemo();
+  const location = useLocation();
 
-  if (isInCbtRoom || (isInGameArena && !isDemoBarOpen)) {
+  if (isInCbtRoom || (isInGameArena && !isDemoBarOpen) || location.pathname === '/login') {
     return null;
   }
 
   const roles: Array<{ role: DemoRole; short: string }> = [
-    { role: 'STUDENT', short: 'Siswa · Ahmad Fauzi' },
     { role: 'TEACHER', short: 'Guru · Ustadz Hendra' },
-    { role: 'PROCTOR', short: 'Pengawas · Ibu Rina' },
-    { role: 'SUPER_ADMIN', short: 'Super Admin · White-Label' },
+    { role: 'STUDENT', short: 'Siswa · Ahmad Fauzi' },
+    { role: 'SCHOOL_ADMIN', short: 'Admin Sekolah · White-Label' },
+    { role: 'OPERATIONAL', short: 'Operasional · Ibu Rina' },
+    { role: 'PARENT', short: 'Orang Tua · Bpk. Ridwan' },
   ];
 
   return (
@@ -45,7 +49,7 @@ export function DemoPresentationBar() {
           <span className="hidden sm:inline text-slate-400">· Ctrl+D</span>
         </button>
       ) : (
-        <div className="w-[340px] sm:w-[420px] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+        <div className="w-[340px] sm:w-[430px] rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div className="flex items-center gap-2">
               <UserCheck className="h-4 w-4 text-brand-primary" />
@@ -62,13 +66,16 @@ export function DemoPresentationBar() {
           </div>
 
           <div className="mt-3">
-            <p className="text-xs font-semibold text-slate-500">Pilih Peran Aktif (1 Klik)</p>
+            <p className="text-xs font-semibold text-slate-500">Pilih Peran Aktif (5 Akun Demo)</p>
             <div className="mt-1.5 grid grid-cols-2 gap-1.5">
               {roles.map((r) => (
                 <button
                   key={r.role}
                   type="button"
-                  onClick={() => setActiveRole(r.role, true)}
+                  onClick={() => {
+                    setActiveRole(r.role, true);
+                    setDemoBarOpen(false);
+                  }}
                   className={`rounded-lg border px-2.5 py-2 text-left text-xs font-medium transition-colors ${
                     activeRole === r.role
                       ? 'border-brand-primary bg-brand-primary/10 text-brand-primary font-semibold'
@@ -78,6 +85,14 @@ export function DemoPresentationBar() {
                   {r.short}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={logout}
+                className="flex items-center justify-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-2.5 py-2 text-xs font-semibold text-red-700 hover:bg-red-100 transition-colors"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                <span>Logout / Login</span>
+              </button>
             </div>
           </div>
 

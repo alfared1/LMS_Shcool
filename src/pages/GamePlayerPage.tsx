@@ -13,22 +13,30 @@ export function GamePlayerPage() {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
   const autostart = searchParams.get('autostart') === '1';
-  const { roleProfile } = useTenantAndDemo();
+  const { roleProfile, aiGames } = useTenantAndDemo();
 
   const [game, setGame] = useState<EducationalGame | null>(() => {
-    return SEED_GAMES.find((g) => g.slug === slug) || null;
+    return aiGames.find((g) => g.slug === slug) || SEED_GAMES.find((g) => g.slug === slug) || null;
   });
   const [loading, setLoading] = useState(!game);
 
   useEffect(() => {
     if (!slug) return;
+    const localFound = aiGames.find((g) => g.slug === slug);
+    if (localFound) {
+      setGame(localFound);
+      setLoading(false);
+      if (localFound.id.startsWith('ai-game-')) {
+        return;
+      }
+    }
     fetch(`/api/games/${slug}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data && data.slug) setGame(data);
       })
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [slug, aiGames]);
 
   const handleComplete = useCallback(
     (score: number, durationSeconds: number) => {

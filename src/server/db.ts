@@ -152,6 +152,25 @@ db.exec(`
   );
 `);
 
+function ensureOptionalColumns(): void {
+  const alters = [
+    'ALTER TABLE educational_games ADD COLUMN is_ai_generated INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE educational_games ADD COLUMN difficulty TEXT',
+    'ALTER TABLE learning_materials ADD COLUMN file_name TEXT',
+    'ALTER TABLE learning_materials ADD COLUMN file_size_label TEXT',
+    'ALTER TABLE learning_materials ADD COLUMN pdf_data_url TEXT',
+  ];
+  for (const sql of alters) {
+    try {
+      db.exec(sql);
+    } catch {
+      // Column already exists
+    }
+  }
+}
+
+ensureOptionalColumns();
+
 function runInTransaction<T>(fn: () => T): T {
   db.exec('BEGIN');
   try {
@@ -543,7 +562,7 @@ export function listAuditLogs(limit = 30): AuditLogDTO[] {
 }
 
 export function listGames(): EducationalGame[] {
-  const rows = db.prepare('SELECT * FROM educational_games ORDER BY play_count DESC').all() as Array<Record<string, unknown>>;
+  const rows = db.prepare('SELECT * FROM educational_games ORDER BY created_at DESC, play_count DESC').all() as Array<Record<string, unknown>>;
   return rows.map((r) => ({
     id: String(r.id),
     slug: String(r.slug),
@@ -557,6 +576,8 @@ export function listGames(): EducationalGame[] {
     playCount: Number(r.play_count),
     configJson: String(r.config_json),
     createdAt: String(r.created_at),
+    isAiGenerated: Boolean(r.is_ai_generated),
+    difficulty: (r.difficulty as EducationalGame['difficulty']) || undefined,
   }));
 }
 
@@ -576,6 +597,8 @@ export function getGameBySlug(slug: string): EducationalGame | null {
     playCount: Number(r.play_count),
     configJson: String(r.config_json),
     createdAt: String(r.created_at),
+    isAiGenerated: Boolean(r.is_ai_generated),
+    difficulty: (r.difficulty as EducationalGame['difficulty']) || undefined,
   };
 }
 
@@ -588,6 +611,8 @@ export function createEducationalGame(input: {
   gradeLevel: number;
   engineType: EducationalGame['engineType'];
   configJson: string;
+  isAiGenerated?: boolean;
+  difficulty?: EducationalGame['difficulty'];
 }): EducationalGame {
   const id = `game-${crypto.randomUUID().slice(0, 8)}`;
   const slugBase = input.title
@@ -597,12 +622,14 @@ export function createEducationalGame(input: {
     .slice(0, 48);
   const slug = `${slugBase || 'game'}-${crypto.randomUUID().slice(0, 4)}`;
   const createdAt = new Date().toISOString();
+  const isAi = input.isAiGenerated ? 1 : 0;
 
   db.prepare(`
     INSERT INTO educational_games (
       id, slug, title, creator_name, subject_code, subject_name,
-      level, grade_level, engine_type, play_count, config_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+      level, grade_level, engine_type, play_count, config_json, created_at,
+      is_ai_generated, difficulty
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
   `).run(
     id,
     slug,
@@ -614,7 +641,9 @@ export function createEducationalGame(input: {
     input.gradeLevel,
     input.engineType,
     input.configJson,
-    createdAt
+    createdAt,
+    isAi,
+    input.difficulty || null
   );
 
   return {
@@ -630,6 +659,8 @@ export function createEducationalGame(input: {
     playCount: 0,
     configJson: input.configJson,
     createdAt,
+    isAiGenerated: Boolean(isAi),
+    difficulty: input.difficulty,
   };
 }
 
@@ -660,7 +691,7 @@ export function recordGameSession(input: {
 }
 
 export function listMaterials(): LearningMaterial[] {
-  const rows = db.prepare('SELECT * FROM learning_materials ORDER BY views_count DESC').all() as Array<Record<string, unknown>>;
+  const rows = db.prepare('SELECT * FROM learning_materials ORDER BY created_at DESC, views_count DESC').all() as Array<Record<string, unknown>>;
   return rows.map((r) => ({
     id: String(r.id),
     slug: String(r.slug),
@@ -675,6 +706,9 @@ export function listMaterials(): LearningMaterial[] {
     viewsCount: Number(r.views_count),
     readMinutes: Number(r.read_minutes),
     createdAt: String(r.created_at),
+    fileName: r.file_name ? String(r.file_name) : undefined,
+    fileSizeLabel: r.file_size_label ? String(r.file_size_label) : undefined,
+    pdfDataUrl: r.pdf_data_url ? String(r.pdf_data_url) : undefined,
   }));
 }
 
@@ -687,6 +721,9 @@ export function createLearningMaterial(input: {
   materialType: LearningMaterial['materialType'];
   summary: string;
   contentMarkdown: string;
+  fileName?: string;
+  fileSizeLabel?: string;
+  pdfDataUrl?: string;
 }): LearningMaterial {
   const id = `mat-${crypto.randomUUID().slice(0, 8)}`;
   const slug = `${input.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 42)}-${crypto.randomUUID().slice(0, 4)}`;
@@ -694,8 +731,9 @@ export function createLearningMaterial(input: {
   db.prepare(`
     INSERT INTO learning_materials (
       id, slug, title, author_name, subject_name, level, grade_level,
-      material_type, summary, content_markdown, views_count, read_minutes, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 8, ?)
+      material_type, summary, content_markdown, views_count, read_minutes, created_at,
+      file_name, file_size_label, pdf_data_url
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 8, ?, ?, ?, ?)
   `).run(
     id,
     slug,
@@ -707,7 +745,10 @@ export function createLearningMaterial(input: {
     input.materialType,
     input.summary,
     input.contentMarkdown,
-    createdAt
+    createdAt,
+    input.fileName || null,
+    input.fileSizeLabel || null,
+    input.pdfDataUrl || null
   );
   return {
     id,
@@ -723,6 +764,9 @@ export function createLearningMaterial(input: {
     viewsCount: 1,
     readMinutes: 8,
     createdAt,
+    fileName: input.fileName,
+    fileSizeLabel: input.fileSizeLabel,
+    pdfDataUrl: input.pdfDataUrl,
   };
 }
 

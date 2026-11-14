@@ -28,6 +28,7 @@ import {
   getRecentGameSessions,
 } from './src/server/db';
 import { handleAiTutorChat } from './src/server/ai-tutor';
+import { handleAiGameGenerate } from './src/server/ai-game';
 
 dotenv.config();
 
@@ -35,7 +36,7 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({ limit: '6mb' }));
 
   // --- White-Label Tenant Config ---
   app.get('/api/config', (_req, res) => {
@@ -62,7 +63,18 @@ async function startServer() {
   });
 
   app.post('/api/games', (req, res) => {
-    const { title, creatorName, subjectCode, subjectName, level, gradeLevel, engineType, configJson } = req.body || {};
+    const {
+      title,
+      creatorName,
+      subjectCode,
+      subjectName,
+      level,
+      gradeLevel,
+      engineType,
+      configJson,
+      isAiGenerated,
+      difficulty,
+    } = req.body || {};
     if (!title || !engineType || !configJson) {
       res.status(400).json({ error: 'Judul, tipe engine, dan konfigurasi JSON wajib diisi.' });
       return;
@@ -82,6 +94,8 @@ async function startServer() {
       gradeLevel: Number(gradeLevel || 10),
       engineType,
       configJson: typeof configJson === 'string' ? configJson : JSON.stringify(configJson),
+      isAiGenerated: Boolean(isAiGenerated),
+      difficulty,
     });
     res.status(201).json(created);
   });
@@ -108,7 +122,19 @@ async function startServer() {
   });
 
   app.post('/api/materials', (req, res) => {
-    const { title, authorName, subjectName, level, gradeLevel, materialType, summary, contentMarkdown } = req.body || {};
+    const {
+      title,
+      authorName,
+      subjectName,
+      level,
+      gradeLevel,
+      materialType,
+      summary,
+      contentMarkdown,
+      fileName,
+      fileSizeLabel,
+      pdfDataUrl,
+    } = req.body || {};
     if (!title || !summary) {
       res.status(400).json({ error: 'Judul dan ringkasan materi wajib diisi.' });
       return;
@@ -122,6 +148,9 @@ async function startServer() {
       materialType: materialType || 'MODUL_PDF',
       summary: String(summary),
       contentMarkdown: String(contentMarkdown || summary),
+      fileName: fileName ? String(fileName) : undefined,
+      fileSizeLabel: fileSizeLabel ? String(fileSizeLabel) : undefined,
+      pdfDataUrl: pdfDataUrl ? String(pdfDataUrl) : undefined,
     });
     res.status(201).json(created);
   });
@@ -258,6 +287,9 @@ async function startServer() {
 
   // --- Voice AI Tutor (with CBT Lockout) ---
   app.post('/api/ai-tutor/chat', handleAiTutorChat);
+
+  // --- AI Prompt-to-Game & Quiz Studio ---
+  app.post('/api/ai-game/generate', handleAiGameGenerate);
 
   // --- Vite Middleware / Static Serving ---
   if (process.env.NODE_ENV !== 'production') {

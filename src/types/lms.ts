@@ -1,6 +1,15 @@
-export type DemoRole = 'STUDENT' | 'TEACHER' | 'PROCTOR' | 'SUPER_ADMIN';
+export type DemoRole = 'TEACHER' | 'STUDENT' | 'SCHOOL_ADMIN' | 'OPERATIONAL' | 'PARENT';
 
 export type LanguageCode = 'id' | 'en';
+
+export interface AuthSession {
+  isAuthenticated: boolean;
+  role: DemoRole;
+  username: string;
+  displayName: string;
+  email: string;
+  loggedInAt: string;
+}
 
 export type GameEngineType =
   | 'MILLIONAIRE_QUIZ'
@@ -40,6 +49,8 @@ export interface EducationalGame {
   playCount: number;
   configJson: string;
   createdAt: string;
+  isAiGenerated?: boolean;
+  difficulty?: 'Mudah' | 'Sedang' | 'HOTS';
 }
 
 export interface LearningMaterial {
@@ -56,6 +67,11 @@ export interface LearningMaterial {
   viewsCount: number;
   readMinutes: number;
   createdAt: string;
+  pdfDataUrl?: string;
+  pdfObjectUrl?: string;
+  fileName?: string;
+  fileSizeBytes?: number;
+  fileSizeLabel?: string;
 }
 
 export interface ExamOption {
