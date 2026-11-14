@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CheckCircle2, Lock, RotateCcw, ShieldAlert, ShieldCheck, Terminal } from 'lucide-react';
 import { GameContainerShell } from './GameContainerShell';
 import { useTenantAndDemo } from '../../context/TenantAndDemoContext';
@@ -51,6 +51,13 @@ export function RoleplayLkpdEngine({ title, subjectName, config, autostart, onCo
 
   const cases = config.phishingCases || [];
   const currentCase = cases[phishingIdx];
+  const stageTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (stageTimeoutRef.current) window.clearTimeout(stageTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     document.body.dataset.state = gameState;
@@ -60,6 +67,7 @@ export function RoleplayLkpdEngine({ title, subjectName, config, autostart, onCo
   }, [gameState]);
 
   const startGame = useCallback(() => {
+    if (stageTimeoutRef.current) window.clearTimeout(stageTimeoutRef.current);
     setStage(1);
     setScore(0);
     setElapsed(0);
@@ -98,7 +106,8 @@ export function RoleplayLkpdEngine({ title, subjectName, config, autostart, onCo
       setPhishingFeedback(`Perlu Teliti: ${currentCase.reason}`);
     }
 
-    window.setTimeout(() => {
+    if (stageTimeoutRef.current) window.clearTimeout(stageTimeoutRef.current);
+    stageTimeoutRef.current = window.setTimeout(() => {
       setPhishingFeedback(null);
       if (phishingIdx + 1 >= cases.length) {
         setStage(3);

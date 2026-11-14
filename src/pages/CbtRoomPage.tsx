@@ -1,9 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, CheckCircle2, Flag, Send } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle2, Flag, Info, Send } from 'lucide-react';
 import { ZenLockdownHeader } from '../components/cbt/ZenLockdownHeader';
 import { QuestionNavigatorGrid } from '../components/cbt/QuestionNavigatorGrid';
 import { ViolationShieldModal } from '../components/cbt/ViolationShieldModal';
+import {
+  clearLiveCbtSyncEntry,
+  mergeAttemptWithLiveSync,
+  writeLiveCbtSyncEntry,
+} from '../lib/cbt-sync';
 import type { ClientExamQuestion, ExamAttemptDTO } from '../types/lms';
 
 export function CbtRoomPage() {
@@ -16,17 +21,38 @@ export function CbtRoomPage() {
   const [secondsLeft, setSecondsLeft] = useState(3600);
   const [syncStatus, setSyncStatus] = useState<'Tersimpan' | 'Menyimpan...' | 'Offline Cache'>('Tersimpan');
   const [fontScale, setFontScale] = useState<'sm' | 'md' | 'lg'>('md');
-  const [violationOpen, setViolationOpen] = useState(false);
+  const [isViolationModalOpen, setIsViolationModalOpen] = useState(false);
   const [violationReason, setViolationReason] = useState('');
+  const [sandboxToast, setSandboxToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const saveTimerRef = useRef<number | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const lastViolationTimeRef = useRef<number>(0);
+  const isViolationModalOpenRef = useRef<boolean>(false);
   const attemptRef = useRef<ExamAttemptDTO | null>(null);
 
   useEffect(() => {
     attemptRef.current = attempt;
   }, [attempt]);
+
+  useEffect(() => {
+    isViolationModalOpenRef.current = isViolationModalOpen;
+  }, [isViolationModalOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const showSandboxToast = useCallback((msg: string) => {
+    setSandboxToast(msg);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setSandboxToast(null), 4000);
+  }, []);
 
   const loadSession = useCallback(async () => {
     try {
@@ -37,13 +63,20 @@ export function CbtRoomPage() {
         return;
       }
       const data = (await res.json()) as { attempt: ExamAttemptDTO; questions: ClientExamQuestion[] };
-      setAttempt(data.attempt);
+      // If server proctor unlocked & reset violationCount to 0, clear stale local sync
+      if (!data.attempt.isLockedByProctor && data.attempt.violationCount === 0) {
+        clearLiveCbtSyncEntry(data.attempt.id);
+        isViolationModalOpenRef.current = false;
+        setIsViolationModalOpen(false);
+      }
+      const merged = mergeAttemptWithLiveSync(data.attempt);
+      setAttempt(merged);
       setQuestions(data.questions);
-      setAnswers(data.attempt.answers || {});
-      setFlaggedIds(data.attempt.flaggedIds || []);
+      setAnswers(merged.answers || {});
+      setFlaggedIds(merged.flaggedIds || []);
       const diffSec = Math.max(
         0,
-        Math.floor((new Date(data.attempt.expiresAt).getTime() - Date.now()) / 1000)
+        Math.floor((new Date(merged.expiresAt).getTime() - Date.now()) / 1000)
       );
       setSecondsLeft(diffSec);
       setLoading(false);
@@ -70,13 +103,43 @@ export function CbtRoomPage() {
     return () => window.clearInterval(t);
   }, [attempt]);
 
-  // Anti-Cheating Visibility Listener
+  // Anti-Cheating Sensor with Modal/Lock Guard & 2.5s Cooldown (prevents infinite loop)
   const triggerViolation = useCallback(
     async (type: 'TAB_SWITCH' | 'FULLSCREEN_EXIT' | 'WINDOW_BLUR', detail: string) => {
       const curr = attemptRef.current;
       if (!curr || curr.submittedAt || curr.isLockedByProctor) return;
+      if (isViolationModalOpenRef.current) return;
+
+      const now = Date.now();
+      if (now - lastViolationTimeRef.current < 2500) return;
+
+      lastViolationTimeRef.current = now;
+      isViolationModalOpenRef.current = true;
       setViolationReason(detail);
-      setViolationOpen(true);
+      setIsViolationModalOpen(true);
+
+      const nextCount = curr.violationCount + 1;
+      const shouldLock = nextCount >= curr.maxTabSwitches;
+      const nextLogs = [
+        ...curr.violationLogs,
+        { timestamp: new Date().toISOString(), type, detail },
+      ];
+
+      const optimistic: ExamAttemptDTO = {
+        ...curr,
+        violationCount: nextCount,
+        isLockedByProctor: shouldLock,
+        violationLogs: nextLogs,
+      };
+      setAttempt(optimistic);
+      writeLiveCbtSyncEntry({
+        attemptId: curr.id,
+        violationCount: nextCount,
+        isLockedByProctor: shouldLock,
+        violationLogs: nextLogs,
+        updatedAt: now,
+      });
+
       try {
         const res = await fetch(`/api/cbt/attempts/${curr.id}/violation`, {
           method: 'POST',
@@ -86,9 +149,16 @@ export function CbtRoomPage() {
         if (res.ok) {
           const updated = (await res.json()) as ExamAttemptDTO;
           setAttempt(updated);
+          writeLiveCbtSyncEntry({
+            attemptId: updated.id,
+            violationCount: updated.violationCount,
+            isLockedByProctor: updated.isLockedByProctor,
+            violationLogs: updated.violationLogs,
+            updatedAt: Date.now(),
+          });
         }
       } catch {
-        // ignore network error
+        // localStorage sync already preserved the violation
       }
     },
     []
@@ -100,15 +170,27 @@ export function CbtRoomPage() {
         triggerViolation('TAB_SWITCH', 'Terdeteksi berpindah tab atau meminimalkan jendela ujian.');
       }
     };
+    const onWindowBlur = () => {
+      triggerViolation('WINDOW_BLUR', 'Terdeteksi jendela ujian kehilangan fokus (blur / pindah aplikasi).');
+    };
+
     document.addEventListener('visibilitychange', onVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('blur', onWindowBlur);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onWindowBlur);
+    };
   }, [triggerViolation]);
 
   const persistAnswers = useCallback(
     (nextAnswers: Record<string, string>, nextFlagged: string[]) => {
       const curr = attemptRef.current;
       if (!curr) return;
-      localStorage.setItem(`cbt_cache_${curr.id}`, JSON.stringify({ nextAnswers, nextFlagged }));
+      try {
+        localStorage.setItem(`cbt_cache_${curr.id}`, JSON.stringify({ nextAnswers, nextFlagged }));
+      } catch {
+        // ignore storage errors
+      }
       setSyncStatus('Menyimpan...');
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = window.setTimeout(async () => {
@@ -144,13 +226,17 @@ export function CbtRoomPage() {
 
   const handleEnterFullscreen = async () => {
     try {
-      if (!document.fullscreenElement) {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen();
       }
     } catch {
-      // ignore if headless browser blocks fullscreen
+      showSandboxToast(
+        'Layar penuh dibatasi kebijakan iframe sandbox — Mode Fokus Zen tetap aktif mengawasi sesi.'
+      );
     }
-    setViolationOpen(false);
+    lastViolationTimeRef.current = Date.now();
+    isViolationModalOpenRef.current = false;
+    setIsViolationModalOpen(false);
   };
 
   const handleSubmitExam = async () => {
@@ -159,6 +245,7 @@ export function CbtRoomPage() {
     if (res.ok) {
       const submitted = (await res.json()) as ExamAttemptDTO;
       setAttempt(submitted);
+      clearLiveCbtSyncEntry(attempt.id);
     }
   };
 
@@ -227,6 +314,15 @@ export function CbtRoomPage() {
         maxViolations={attempt.maxTabSwitches}
         onEnterFullscreen={handleEnterFullscreen}
       />
+
+      {sandboxToast && (
+        <div className="mx-auto mt-3 max-w-[1360px] px-4 sm:px-6">
+          <div className="flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2.5 text-xs font-medium text-sky-900">
+            <Info className="h-4 w-4 shrink-0 text-sky-600" />
+            <span>{sandboxToast}</span>
+          </div>
+        </div>
+      )}
 
       <main className="mx-auto grid max-w-[1360px] gap-6 px-4 py-6 sm:px-6 lg:grid-cols-12">
         {/* Question Area */}
@@ -374,7 +470,7 @@ export function CbtRoomPage() {
       </main>
 
       <ViolationShieldModal
-        isOpen={violationOpen}
+        isOpen={isViolationModalOpen}
         isLockedByProctor={attempt.isLockedByProctor}
         violationCount={attempt.violationCount}
         maxViolations={attempt.maxTabSwitches}

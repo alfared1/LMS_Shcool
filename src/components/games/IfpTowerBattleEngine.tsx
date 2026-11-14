@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RotateCcw, Shield, Zap } from 'lucide-react';
 import { GameContainerShell } from './GameContainerShell';
 import { useTenantAndDemo } from '../../context/TenantAndDemoContext';
@@ -43,6 +43,13 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
 
   const prompts = config.prompts || [];
   const currentPrompt = prompts[promptIdx % Math.max(prompts.length, 1)];
+  const laserTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (laserTimeoutRef.current) window.clearTimeout(laserTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     document.body.dataset.state = gameState;
@@ -52,6 +59,7 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
   }, [gameState]);
 
   const startGame = useCallback(() => {
+    if (laserTimeoutRef.current) window.clearTimeout(laserTimeoutRef.current);
     setTimeLeft(config.durationSeconds || 60);
     setLeftHp(100);
     setRightHp(100);
@@ -67,18 +75,19 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
   useEffect(() => {
     if (gameState !== 'playing') return;
     const t = window.setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          playTone('victory', isMuted);
-          setGameState('gameover');
-          onComplete(Math.max(leftScore, rightScore), config.durationSeconds || 60);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setTimeLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => window.clearInterval(t);
-  }, [gameState, isMuted, leftScore, rightScore, config.durationSeconds, onComplete]);
+  }, [gameState]);
+
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    if (timeLeft <= 0) {
+      playTone('victory', isMuted);
+      setGameState('gameover');
+      onComplete(Math.max(leftScore, rightScore), config.durationSeconds || 60);
+    }
+  }, [gameState, timeLeft, isMuted, leftScore, rightScore, config.durationSeconds, onComplete]);
 
   const handleTeamTap = (team: 'LEFT' | 'RIGHT') => {
     if (gameState !== 'playing' || !currentPrompt) return;
@@ -89,7 +98,8 @@ export function IfpTowerBattleEngine({ title, subjectName, config, autostart, on
     if (isCorrect) {
       playTone('laser', isMuted);
       setLaserSide(team);
-      window.setTimeout(() => setLaserSide(null), 280);
+      if (laserTimeoutRef.current) window.clearTimeout(laserTimeoutRef.current);
+      laserTimeoutRef.current = window.setTimeout(() => setLaserSide(null), 280);
 
       if (team === 'LEFT') {
         const nextHp = Math.max(0, rightHp - 20);

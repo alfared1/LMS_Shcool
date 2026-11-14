@@ -1,7 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { CheckCircle2, Clock, LockOpen, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import type { AuditLogDTO, ExamAttemptDTO } from '../types/lms';
 import { formatCountdown } from '../lib/core-logic';
+import { clearLiveCbtSyncEntry, mergeAttemptWithLiveSync } from '../lib/cbt-sync';
 
 export function ProctorDashboardPage() {
   const [examId, setExamId] = useState('uas-informatika-2026');
@@ -12,6 +13,13 @@ export function ProctorDashboardPage() {
   const [auditLogs, setAuditLogs] = useState<AuditLogDTO[]>([]);
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'LOCKED' | 'DONE'>('ALL');
   const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -24,7 +32,8 @@ export function ProctorDashboardPage() {
         setExamId(data.examId);
         setExamTitle(data.examTitle);
         setDynamicToken(data.dynamicToken);
-        setAttempts(data.attempts || []);
+        const merged = ((data.attempts || []) as ExamAttemptDTO[]).map(mergeAttemptWithLiveSync);
+        setAttempts(merged);
       }
       if (auditRes.ok) {
         setAuditLogs(await auditRes.json());
@@ -37,7 +46,16 @@ export function ProctorDashboardPage() {
   useEffect(() => {
     loadData();
     const poll = window.setInterval(loadData, 5000);
-    return () => window.clearInterval(poll);
+    const onLiveSync = () => {
+      setAttempts((prev) => prev.map(mergeAttemptWithLiveSync));
+    };
+    window.addEventListener('storage', onLiveSync);
+    window.addEventListener('cendekia-cbt-sync', onLiveSync);
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener('storage', onLiveSync);
+      window.removeEventListener('cendekia-cbt-sync', onLiveSync);
+    };
   }, [loadData]);
 
   useEffect(() => {
@@ -49,7 +67,8 @@ export function ProctorDashboardPage() {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 3500);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 3500);
   };
 
   const handleRotateToken = async () => {
@@ -72,15 +91,20 @@ export function ProctorDashboardPage() {
     studentName: string,
     action: 'UNLOCK_SESSION' | 'RESET_DEVICE' | 'ADD_TIME_10M'
   ) => {
+    if (action === 'UNLOCK_SESSION') {
+      clearLiveCbtSyncEntry(attemptId);
+    }
     const res = await fetch(`/api/proctor/attempts/${attemptId}/action`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action, actorName: 'Ibu Rina, S.Pd' }),
     });
     if (res.ok) {
+      const updated = (await res.json()) as ExamAttemptDTO;
+      setAttempts((prev) => prev.map((a) => (a.id === attemptId ? updated : a)));
       const msg =
         action === 'UNLOCK_SESSION'
-          ? `Sesi ujian ${studentName} telah dibuka kuncinya.`
+          ? `Sesi ujian ${studentName} dibuka kuncinya & pelanggaran direset ke 0.`
           : action === 'RESET_DEVICE'
           ? `Login perangkat ${studentName} berhasil direset.`
           : `Waktu ujian ${studentName} ditambah +10 menit.`;
@@ -257,14 +281,14 @@ export function ProctorDashboardPage() {
 
               {!att.submittedAt && (
                 <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                  {att.isLockedByProctor && (
+                  {(att.isLockedByProctor || att.violationCount > 0) && (
                     <button
                       type="button"
                       onClick={() => handleAction(att.id, att.studentName, 'UNLOCK_SESSION')}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700"
                     >
                       <LockOpen className="h-3.5 w-3.5" />
-                      <span>Buka Kunci Sesi</span>
+                      <span>Unlock / Reset Sesi</span>
                     </button>
                   )}
                   <button

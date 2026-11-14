@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Calculator, HelpCircle, Pause, RotateCcw, Snowflake, Sparkles, Users, BookOpen } from 'lucide-react';
 import { GameContainerShell } from './GameContainerShell';
 import { useTenantAndDemo } from '../../context/TenantAndDemoContext';
@@ -63,6 +63,16 @@ export function MillionaireQuizEngine({ title, subjectName, config, autostart, o
 
   const questions = config.questions || [];
   const currentQ = questions[qIndex];
+  const timeoutsRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    return () => {
+      for (const id of timeoutsRef.current) {
+        window.clearTimeout(id);
+      }
+      timeoutsRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     document.body.dataset.state = gameState;
@@ -73,6 +83,10 @@ export function MillionaireQuizEngine({ title, subjectName, config, autostart, o
 
   const startGame = useCallback(
     (selectedMode: ModeType = mode) => {
+      for (const id of timeoutsRef.current) {
+        window.clearTimeout(id);
+      }
+      timeoutsRef.current = [];
       setMode(selectedMode);
       setQIndex(0);
       setScore(0);
@@ -113,22 +127,23 @@ export function MillionaireQuizEngine({ title, subjectName, config, autostart, o
     const timer = window.setInterval(() => {
       setTotalElapsed((t) => t + 1);
       if (mode !== 'MARATHON' && !isFrozen) {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            playTone('wrong', isMuted);
-            setGameState('gameover');
-            onComplete(score, totalElapsed);
-            return 0;
-          }
-          return prev - 1;
-        });
+        setTimeLeft((prev) => Math.max(0, prev - 1));
       }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [gameState, mode, isFrozen, feedback, isMuted, onComplete, score, totalElapsed]);
+  }, [gameState, mode, isFrozen, feedback]);
+
+  useEffect(() => {
+    if (gameState !== 'playing' || mode === 'MARATHON' || isFrozen) return;
+    if (timeLeft <= 0) {
+      playTone('wrong', isMuted);
+      setGameState('gameover');
+      onComplete(score, totalElapsed);
+    }
+  }, [gameState, mode, isFrozen, timeLeft, isMuted, onComplete, score, totalElapsed]);
 
   const advanceOrFinish = (nextScore: number, wasCorrect: boolean) => {
-    window.setTimeout(() => {
+    const tId = window.setTimeout(() => {
       if (!wasCorrect) {
         setGameState('gameover');
         onComplete(nextScore, totalElapsed);
@@ -149,6 +164,7 @@ export function MillionaireQuizEngine({ title, subjectName, config, autostart, o
         setFeedback(null);
       }
     }, 900);
+    timeoutsRef.current.push(tId);
   };
 
   const handleSelectOption = (optionId: string) => {

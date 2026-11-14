@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Gamepad2, PlusCircle, Save, UploadCloud } from 'lucide-react';
 import { SEED_REPORT_CARD } from '../lib/seed-data';
@@ -50,6 +50,14 @@ export function TeacherDashboardPage() {
   const [matType, setMatType] = useState<'MODUL_PDF' | 'INTERACTIVE_LKPD' | 'ARTICLE_BLOG'>('MODUL_PDF');
   const [matSummary, setMatSummary] = useState('');
 
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     fetch('/api/erapor')
       .then((r) => (r.ok ? r.json() : null))
@@ -59,7 +67,8 @@ export function TeacherDashboardPage() {
 
   const showToast = (msg: string) => {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 3500);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 3500);
   };
 
   const handleGradeChange = (

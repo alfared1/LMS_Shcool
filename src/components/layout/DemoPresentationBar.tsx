@@ -31,7 +31,7 @@ export function DemoPresentationBar() {
   ];
 
   return (
-    <div className="no-print fixed bottom-4 left-4 z-50">
+    <div className="no-print print:hidden fixed bottom-4 left-4 z-50">
       {!isDemoBarOpen ? (
         <button
           type="button"

@@ -1,9 +1,10 @@
-import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom';
+import { BrowserRouter, Route, Routes, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { TenantAndDemoProvider, useTenantAndDemo } from './context/TenantAndDemoContext';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar } from './components/layout/Sidebar';
 import { DemoPresentationBar } from './components/layout/DemoPresentationBar';
 import { FloatingAiTutorDrawer } from './components/ai-tutor/FloatingAiTutorDrawer';
+import { PublicStatelessVerifyPage } from './components/erapor/PublicStatelessVerifyPage';
 import { LandingPage } from './pages/LandingPage';
 import { GamesCatalogPage } from './pages/GamesCatalogPage';
 import { GamePlayerPage } from './pages/GamePlayerPage';
@@ -20,6 +21,20 @@ import { VerifyHashPage } from './pages/VerifyHashPage';
 
 function AppShell() {
   const { isInCbtRoom, isInGameArena, config } = useTenantAndDemo();
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const searchParams = new URLSearchParams(
+    location.search || (typeof window !== 'undefined' ? window.location.search : '')
+  );
+  if (searchParams.get('verify') === 'true') {
+    return (
+      <PublicStatelessVerifyPage
+        params={searchParams}
+        onBackHome={() => navigate('/', { replace: true })}
+      />
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -47,7 +62,7 @@ function AppShell() {
       </div>
 
       {!isInCbtRoom && !isInGameArena && (
-        <footer className="no-print border-t border-slate-200 bg-white px-6 py-5 text-xs text-slate-500">
+        <footer className="no-print print:hidden border-t border-slate-200 bg-white px-6 py-5 text-xs text-slate-500">
           <div className="mx-auto flex max-w-[1360px] flex-wrap items-center justify-between gap-3">
             <span>
               {config.schoolName} · NPSN {config.npsn}

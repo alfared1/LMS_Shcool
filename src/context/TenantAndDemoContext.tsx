@@ -66,6 +66,29 @@ interface TenantAndDemoContextValue {
 }
 
 const TenantAndDemoContext = createContext<TenantAndDemoContextValue | null>(null);
+const SCHOOL_CONFIG_STORAGE_KEY = 'cendekia_school_config_v1';
+
+function readStoredSchoolConfig(): SchoolConfig | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SCHOOL_CONFIG_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SchoolConfig>;
+    if (!parsed || typeof parsed.schoolName !== 'string') return null;
+    return { ...DEFAULT_SCHOOL_CONFIG, ...parsed };
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredSchoolConfig(config: SchoolConfig): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SCHOOL_CONFIG_STORAGE_KEY, JSON.stringify(config));
+  } catch {
+    // ignore storage errors
+  }
+}
 
 function applyCssVariables(config: SchoolConfig): void {
   if (typeof document === 'undefined') return;
@@ -82,7 +105,9 @@ function applyCssVariables(config: SchoolConfig): void {
 }
 
 export function TenantAndDemoProvider({ children }: { children: React.ReactNode }) {
-  const [config, setConfig] = useState<SchoolConfig>(DEFAULT_SCHOOL_CONFIG);
+  const [config, setConfig] = useState<SchoolConfig>(
+    () => readStoredSchoolConfig() || DEFAULT_SCHOOL_CONFIG
+  );
   const [activeRole, setActiveRoleState] = useState<DemoRole>('STUDENT');
   const [language, setLanguage] = useState<LanguageCode>('id');
   const [isMuted, setIsMuted] = useState<boolean>(false);
@@ -96,14 +121,24 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     applyCssVariables(config);
+    saveStoredSchoolConfig(config);
   }, [config]);
 
   useEffect(() => {
+    const localStored = readStoredSchoolConfig();
     fetch('/api/config')
       .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
+      .then((data: SchoolConfig | null) => {
         if (data && data.schoolName) {
-          setConfig(data);
+          if (!localStored) {
+            setConfig(data);
+          } else {
+            const localTime = Date.parse(localStored.updatedAt || '0') || 0;
+            const serverTime = Date.parse(data.updatedAt || '0') || 0;
+            if (serverTime > localTime) {
+              setConfig(data);
+            }
+          }
         }
       })
       .catch(() => undefined);
@@ -134,24 +169,35 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
     setIsMuted((prev) => !prev);
   }, []);
 
-  const updateTenantConfig = useCallback(async (patch: Partial<SchoolConfig>): Promise<SchoolConfig> => {
-    setConfig((prev) => ({ ...prev, ...patch }));
-    try {
-      const res = await fetch('/api/config', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
-      });
-      if (res.ok) {
-        const saved = (await res.json()) as SchoolConfig;
-        setConfig(saved);
-        return saved;
+  const updateTenantConfig = useCallback(
+    async (patch: Partial<SchoolConfig>): Promise<SchoolConfig> => {
+      const optimistic: SchoolConfig = {
+        ...config,
+        ...patch,
+        updatedAt: new Date().toISOString(),
+      };
+      setConfig(optimistic);
+      saveStoredSchoolConfig(optimistic);
+      applyCssVariables(optimistic);
+      try {
+        const res = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        if (res.ok) {
+          const saved = (await res.json()) as SchoolConfig;
+          setConfig(saved);
+          saveStoredSchoolConfig(saved);
+          return saved;
+        }
+      } catch {
+        // keep optimistic localStorage update
       }
-    } catch {
-      // keep optimistic update
-    }
-    return { ...config, ...patch };
-  }, [config]);
+      return optimistic;
+    },
+    [config]
+  );
 
   const applyPreset = useCallback(
     async (presetKey: string): Promise<SchoolConfig> => {

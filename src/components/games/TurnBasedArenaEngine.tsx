@@ -90,17 +90,18 @@ export function TurnBasedArenaEngine({ title, subjectName, config, autostart, on
   useEffect(() => {
     if (gameState !== 'playing') return;
     const t = window.setInterval(() => {
-      setTurnTimer((prev) => {
-        if (prev <= 1) {
-          playTone('wrong', isMuted);
-          switchTurn(qIdx + 1);
-          return config.turnDurationSeconds || 20;
-        }
-        return prev - 1;
-      });
+      setTurnTimer((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => window.clearInterval(t);
-  }, [gameState, isMuted, qIdx, switchTurn, config.turnDurationSeconds]);
+  }, [gameState]);
+
+  useEffect(() => {
+    if (gameState !== 'playing') return;
+    if (turnTimer <= 0) {
+      playTone('wrong', isMuted);
+      switchTurn(qIdx + 1);
+    }
+  }, [gameState, turnTimer, isMuted, qIdx, switchTurn]);
 
   const handleUseIhsan = () => {
     if (turn === 'A' && ihsanUsedA) return;

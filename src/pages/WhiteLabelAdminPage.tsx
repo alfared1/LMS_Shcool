@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { CheckCircle2, Palette, Save } from 'lucide-react';
 import { useTenantAndDemo } from '../context/TenantAndDemoContext';
 import { WHITE_LABEL_PRESETS } from '../lib/seed-data';
@@ -9,6 +9,13 @@ export function WhiteLabelAdminPage() {
   const { config, updateTenantConfig, applyPreset } = useTenantAndDemo();
   const [form, setForm] = useState<SchoolConfig>(config);
   const [savedToast, setSavedToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     setForm(config);
@@ -18,14 +25,16 @@ export function WhiteLabelAdminPage() {
     e.preventDefault();
     await updateTenantConfig(form);
     setSavedToast(`Identitas "${form.schoolName}" berhasil diterapkan ke seluruh sistem & E-Rapor.`);
-    window.setTimeout(() => setSavedToast(null), 3500);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setSavedToast(null), 3500);
   };
 
   const handlePresetClick = async (presetKey: string) => {
     const next = await applyPreset(presetKey);
     setForm(next);
     setSavedToast(`Preset "${next.schoolName}" langsung diaktifkan!`);
-    window.setTimeout(() => setSavedToast(null), 3000);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setSavedToast(null), 3000);
   };
 
   return (

@@ -21,10 +21,17 @@ export function EraporPage() {
       .catch(() => undefined);
   }, []);
 
+  const averageScore =
+    Math.round(
+      (rapor.grades.reduce((sum, g) => sum + g.finalGrade, 0) / Math.max(rapor.grades.length, 1)) * 10
+    ) / 10;
+
+  const verifyQuery = `?verify=true&school=${encodeURIComponent(config.schoolName)}&name=${encodeURIComponent(rapor.studentName)}&nisn=${encodeURIComponent(rapor.studentNisn)}&class=${encodeURIComponent(rapor.classroomName)}&sem=${encodeURIComponent(rapor.academicYear || '2026/2027 Ganjil')}&score=${encodeURIComponent(String(averageScore))}&principal=${encodeURIComponent(config.principalName)}&hash=${encodeURIComponent(rapor.sha256Hash)}`;
+
   const verifyUrl =
     typeof window !== 'undefined'
-      ? `${window.location.origin}/verify/${rapor.sha256Hash}`
-      : `/verify/${rapor.sha256Hash}`;
+      ? `${window.location.origin}${window.location.pathname}${verifyQuery}`
+      : `/${verifyQuery}`;
 
   useEffect(() => {
     QRCode.toString(verifyUrl, {
@@ -37,15 +44,10 @@ export function EraporPage() {
       .catch(() => undefined);
   }, [verifyUrl]);
 
-  const averageScore =
-    Math.round(
-      (rapor.grades.reduce((sum, g) => sum + g.finalGrade, 0) / Math.max(rapor.grades.length, 1)) * 10
-    ) / 10;
-
   return (
-    <div className="flex-1 p-6 sm:p-8 space-y-6">
+    <div className="flex-1 p-6 sm:p-8 space-y-6 print:p-0 print:m-0 print:space-y-0">
       {/* Action Header (Hidden when printing) */}
-      <div className="no-print flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="no-print print:hidden flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
           <p className="text-xs font-semibold text-brand-primary">ARSIP DOKUMEN RESMI · PRIVATE VAULT</p>
           <h1 className="mt-1 text-2xl sm:text-3xl font-extrabold text-slate-900">
@@ -58,7 +60,7 @@ export function EraporPage() {
 
         <div className="flex flex-wrap items-center gap-3">
           <Link
-            to={`/verify/${rapor.sha256Hash}`}
+            to={`/${verifyQuery}`}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50"
           >
             <ExternalLink className="h-4 w-4 text-brand-primary" />
@@ -76,7 +78,7 @@ export function EraporPage() {
       </div>
 
       {/* Printable A4 Sheet */}
-      <article className="print-sheet mx-auto max-w-[820px] rounded-2xl border border-slate-200 bg-white p-8 sm:p-10 shadow-sm space-y-6">
+      <article className="print-sheet mx-auto max-w-[820px] rounded-2xl border border-slate-200 bg-white p-8 sm:p-10 shadow-sm space-y-6 print:w-full print:max-w-none print:shadow-none print:border-none print:m-0 print:p-0">
         {/* Dynamic School Kop Surat */}
         <header className="flex items-center gap-5 border-b-2 border-slate-900 pb-5">
           <SchoolCrestLogo className="h-16 w-16 shrink-0" />

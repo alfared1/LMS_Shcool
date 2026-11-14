@@ -64,7 +64,7 @@ export function Sidebar() {
   ];
 
   return (
-    <aside className="no-print hidden lg:flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white px-4 py-6">
+    <aside className="no-print print:hidden hidden lg:flex w-64 shrink-0 flex-col border-r border-slate-200 bg-white px-4 py-6">
       <div className="mb-6 border-b border-slate-100 pb-4">
         <p className="text-xs font-medium text-slate-500">Peran Aktif · {config.schoolShortName}</p>
         <p className="mt-1 truncate text-sm font-semibold text-slate-900">{roleProfile.personName}</p>

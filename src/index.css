@@ -65,11 +65,11 @@ h1, h2, h3, h4, .font-display {
 @media print {
   @page {
     size: A4 portrait;
-    margin: 12mm 14mm;
+    margin: 12mm;
   }
 
   body {
-    background: #ffffff !important;
+    background: white !important;
     color: #0f172a !important;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
@@ -84,6 +84,7 @@ h1, h2, h3, h4, .font-display {
     border: none !important;
     padding: 0 !important;
     margin: 0 !important;
-    max-width: 100% !important;
+    width: 100% !important;
+    max-width: none !important;
   }
 }

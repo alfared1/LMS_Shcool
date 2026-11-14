@@ -35,7 +35,7 @@ export function Navbar() {
     to === '/' ? location.pathname === '/' : location.pathname.startsWith(to);
 
   return (
-    <header className="no-print sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
+    <header className="no-print print:hidden sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur-md">
       <div className="mx-auto flex max-w-[1360px] items-center justify-between gap-8 px-6 py-3.5">
         {/* Zone 1: Single-line Brand Wordmark */}
         <Link

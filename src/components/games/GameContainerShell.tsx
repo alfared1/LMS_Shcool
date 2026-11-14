@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Maximize2, Minimize2, Volume2, VolumeX } from 'lucide-react';
 import { useTenantAndDemo } from '../../context/TenantAndDemoContext';
@@ -21,19 +21,32 @@ export function GameContainerShell({
 }: GameContainerShellProps) {
   const { isMuted, toggleMute } = useTenantAndDemo();
   const containerRef = useRef<HTMLDivElement>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [fsNotice, setFsNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const handleFullscreen = async () => {
     try {
-      if (!document.fullscreenElement && containerRef.current) {
+      if (!document.fullscreenElement && containerRef.current?.requestFullscreen) {
         await containerRef.current.requestFullscreen();
         setIsFullscreen(true);
-      } else if (document.fullscreenElement) {
+      } else if (document.fullscreenElement && document.exitFullscreen) {
         await document.exitFullscreen();
         setIsFullscreen(false);
+      } else {
+        throw new Error('Fullscreen unsupported');
       }
     } catch {
       setIsFullscreen((v) => !v);
+      setFsNotice('Mode layar penuh dibatasi iframe sandbox — tampilan arena tetap dioptimalkan.');
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = window.setTimeout(() => setFsNotice(null), 3500);
     }
   };
 
@@ -94,6 +107,12 @@ export function GameContainerShell({
           </button>
         </div>
       </header>
+
+      {fsNotice && (
+        <div className="bg-slate-900 px-6 py-2 text-center text-xs text-sky-300 border-b border-slate-800">
+          {fsNotice}
+        </div>
+      )}
 
       {/* Main Playfield */}
       <main className="flex-1 flex flex-col">{children}</main>

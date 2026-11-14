@@ -26,6 +26,7 @@ export function FloatingAiTutorDrawer() {
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [voiceToast, setVoiceToast] = useState<string | null>(null);
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -36,6 +37,13 @@ export function FloatingAiTutorDrawer() {
   ]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -55,51 +63,72 @@ export function FloatingAiTutorDrawer() {
     setGrade(nextLevel === 'SMP' ? 8 : 10);
   };
 
+  const showVoiceFallbackToast = (msg: string) => {
+    setVoiceToast(msg);
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setVoiceToast(null), 4000);
+  };
+
   const handleVoiceMic = () => {
-    const SpeechRec =
-      (window as unknown as { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown })
-        .SpeechRecognition ||
-      (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition;
+    try {
+      const SpeechRec =
+        (window as unknown as { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown })
+          .SpeechRecognition ||
+        (window as unknown as { webkitSpeechRecognition?: new () => unknown }).webkitSpeechRecognition;
 
-    if (!SpeechRec) {
-      setInput('Jelaskan cara menghitung nisab zakat mal 85 gram emas');
-      return;
-    }
-
-    interface SimpleRecognition {
-      lang: string;
-      interimResults: boolean;
-      maxAlternatives: number;
-      onresult: (event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
-      onerror: () => void;
-      onend: () => void;
-      start: () => void;
-    }
-
-    const recognition = new SpeechRec() as SimpleRecognition;
-    recognition.lang = 'id-ID';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
-
-    setIsListening(true);
-    recognition.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || '';
-      if (transcript) {
-        setInput(transcript);
+      if (!SpeechRec) {
+        setInput('Jelaskan cara menghitung nisab zakat mal 85 gram emas');
+        showVoiceFallbackToast('Mikrofon browser tidak tersedia di sandbox ini — contoh pertanyaan suara dimasukkan.');
+        return;
       }
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    recognition.start();
+
+      interface SimpleRecognition {
+        lang: string;
+        interimResults: boolean;
+        maxAlternatives: number;
+        onresult: (event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void;
+        onerror: () => void;
+        onend: () => void;
+        start: () => void;
+      }
+
+      const recognition = new SpeechRec() as SimpleRecognition;
+      recognition.lang = 'id-ID';
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      setIsListening(true);
+      recognition.onresult = (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || '';
+        if (transcript) {
+          setInput(transcript);
+        }
+      };
+      recognition.onerror = () => {
+        setIsListening(false);
+        setInput((prev) => prev || 'Jelaskan cara menghitung nisab zakat mal 85 gram emas');
+        showVoiceFallbackToast('Akses mikrofon diblokir iframe/sandbox — simulasi teks suara disiapkan.');
+      };
+      recognition.onend = () => setIsListening(false);
+      recognition.start();
+    } catch {
+      setIsListening(false);
+      setInput((prev) => prev || 'Jelaskan cara menghitung nisab zakat mal 85 gram emas');
+      showVoiceFallbackToast('Akses mikrofon dibatasi kebijakan sandbox — gunakan input teks atau tekan Kirim.');
+    }
   };
 
   const speakResponse = (text: string) => {
-    if (!ttsEnabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text.replace(/[*`#]/g, ''));
-    utterance.lang = 'id-ID';
-    utterance.rate = 1.02;
-    window.speechSynthesis.speak(utterance);
+    try {
+      if (!ttsEnabled || typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text.replace(/[*`#]/g, ''));
+      utterance.lang = 'id-ID';
+      utterance.rate = 1.02;
+      window.speechSynthesis.speak(utterance);
+    } catch {
+      // ignore speech synthesis restriction in sandbox
+    }
   };
 
   const sendMessage = async (promptText?: string) => {
@@ -177,7 +206,7 @@ export function FloatingAiTutorDrawer() {
   };
 
   return (
-    <div className="no-print fixed bottom-4 right-4 z-50">
+    <div className="no-print print:hidden fixed bottom-4 right-4 z-50">
       {!open ? (
         <button
           type="button"
@@ -282,6 +311,13 @@ export function FloatingAiTutorDrawer() {
               </div>
             ))}
           </div>
+
+          {/* Voice fallback notice */}
+          {voiceToast && (
+            <div className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-medium text-amber-800">
+              {voiceToast}
+            </div>
+          )}
 
           {/* Input Bar */}
           <form
