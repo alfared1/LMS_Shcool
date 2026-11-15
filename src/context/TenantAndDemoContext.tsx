@@ -1,12 +1,16 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import type {
   AuthSession,
   DemoRole,
   EducationalGame,
+  ExamPacketSummary,
   LanguageCode,
   LearningMaterial,
   SchoolConfig,
+  ServerExamQuestion,
+  StoredExamPacket,
 } from '../types/lms';
 import { DEFAULT_SCHOOL_CONFIG, WHITE_LABEL_PRESETS } from '../lib/seed-data';
 import { hexToHslComponents } from '../lib/core-logic';
@@ -15,6 +19,16 @@ import {
   DEMO_ACCOUNTS,
   resolveSafeRole,
 } from '../lib/auth-users';
+import {
+  readStoredExamPackets,
+  writeStoredExamPackets,
+} from '../lib/cbt-sync';
+import {
+  auth,
+  googleAuthProvider,
+  syncFirebaseUserProfile,
+  syncUserPreferencesToFirestore,
+} from '../lib/firebase';
 
 export interface RoleProfile {
   role: DemoRole;
@@ -80,8 +94,13 @@ interface TenantAndDemoContextValue {
   isInGameArena: boolean;
   uploadedMaterials: LearningMaterial[];
   aiGames: EducationalGame[];
+  customExamPackets: StoredExamPacket[];
+  serverExamPackets: ExamPacketSummary[];
+  activeExamPackets: ExamPacketSummary[];
+  firebaseIdToken: string | null;
   setActiveRole: (role: DemoRole, navigateToDashboard?: boolean) => void;
   loginWithCredentials: (username: string, password: string) => { ok: boolean; error?: string; role?: DemoRole };
+  loginWithGoogle: (preferredRole?: DemoRole) => Promise<{ ok: boolean; error?: string }>;
   quickDemoLogin: (role: DemoRole) => void;
   logout: () => void;
   setLanguage: (lang: LanguageCode) => void;
@@ -91,6 +110,14 @@ interface TenantAndDemoContextValue {
   applyPreset: (presetKey: string) => Promise<SchoolConfig>;
   addUploadedMaterial: (material: LearningMaterial) => void;
   saveAiGame: (game: EducationalGame) => void;
+  saveExamPacket: (packet: StoredExamPacket) => Promise<StoredExamPacket>;
+  appendQuestionsToExamPacket: (
+    examId: string,
+    questions: ServerExamQuestion[],
+    actorName?: string
+  ) => Promise<void>;
+  updateLocalExamPacketToken: (examId: string, token: string) => void;
+  refreshExamPackets: () => Promise<void>;
 }
 
 const TenantAndDemoContext = createContext<TenantAndDemoContextValue | null>(null);
@@ -165,6 +192,11 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
   const [aiGames, setAiGames] = useState<EducationalGame[]>(
     () => readJsonStorage<EducationalGame[]>(AI_GAMES_STORAGE_KEY) || []
   );
+  const [customExamPackets, setCustomExamPackets] = useState<StoredExamPacket[]>(
+    () => readStoredExamPackets()
+  );
+  const [serverExamPackets, setServerExamPackets] = useState<ExamPacketSummary[]>([]);
+  const [firebaseIdToken, setFirebaseIdToken] = useState<string | null>(null);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -206,6 +238,53 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  const refreshExamPackets = useCallback(async () => {
+    try {
+      const res = await fetch('/api/cbt/exams');
+      if (res.ok) {
+        const data = (await res.json()) as ExamPacketSummary[];
+        if (Array.isArray(data)) {
+          setServerExamPackets(data);
+        }
+      }
+    } catch {
+      // keep existing packets
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshExamPackets();
+    const syncPackets = () => setCustomExamPackets(readStoredExamPackets());
+    const syncMaterials = () => {
+      const stored = readJsonStorage<LearningMaterial[]>(UPLOADED_MATERIALS_STORAGE_KEY);
+      if (Array.isArray(stored)) setUploadedMaterials(stored);
+    };
+    window.addEventListener('cendekia-cbt-packets-sync', syncPackets);
+    window.addEventListener('storage', syncPackets);
+    window.addEventListener('storage', syncMaterials);
+    return () => {
+      window.removeEventListener('cendekia-cbt-packets-sync', syncPackets);
+      window.removeEventListener('storage', syncPackets);
+      window.removeEventListener('storage', syncMaterials);
+    };
+  }, [refreshExamPackets]);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        try {
+          const token = await user.getIdToken();
+          setFirebaseIdToken(token);
+        } catch {
+          setFirebaseIdToken(null);
+        }
+      } else {
+        setFirebaseIdToken(null);
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   const persistSessionForRole = useCallback((role: DemoRole) => {
@@ -259,8 +338,77 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
     [navigate, persistSessionForRole]
   );
 
+  const loginWithGoogle = useCallback(
+    async (preferredRole: DemoRole = 'STUDENT'): Promise<{ ok: boolean; error?: string }> => {
+      try {
+        const result = await signInWithPopup(auth, googleAuthProvider);
+        const token = await result.user.getIdToken();
+        setFirebaseIdToken(token);
+
+        const safeRole = resolveSafeRole(preferredRole);
+        const syncRes = await fetch('/api/auth/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            email: result.user.email || '',
+            displayName: result.user.displayName || null,
+            role: safeRole,
+          }),
+        });
+
+        let resolvedRole = safeRole;
+        if (syncRes.ok) {
+          const dbUser = (await syncRes.json()) as { role?: string };
+          if (dbUser?.role) {
+            resolvedRole = resolveSafeRole(dbUser.role);
+          }
+        }
+
+        // Sync non-PII profile, isolated PII email, and user preferences to Firestore
+        try {
+          await syncFirebaseUserProfile({
+            uid: result.user.uid,
+            displayName: result.user.displayName || DEMO_ACCOUNTS[resolvedRole].displayName,
+            email: result.user.email || '',
+          });
+          await syncUserPreferencesToFirestore({
+            uid: result.user.uid,
+            language,
+            lastActiveRole: resolvedRole,
+          });
+        } catch (fsErr) {
+          console.warn('Firestore profile sync warning:', fsErr);
+        }
+
+        const nextSession: AuthSession = {
+          isAuthenticated: true,
+          role: resolvedRole,
+          username: result.user.email?.split('@')[0] || DEMO_ACCOUNTS[resolvedRole].username,
+          displayName: result.user.displayName || DEMO_ACCOUNTS[resolvedRole].displayName,
+          email: result.user.email || DEMO_ACCOUNTS[resolvedRole].email,
+          loggedInAt: new Date().toISOString(),
+        };
+        setAuthSession(nextSession);
+        setActiveRoleState(resolvedRole);
+        writeJsonStorage(AUTH_SESSION_STORAGE_KEY, nextSession);
+        navigate(DEMO_ROLES[resolvedRole].defaultRoute);
+        return { ok: true };
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : 'Gagal masuk dengan akun Google.';
+        return { ok: false, error: message };
+      }
+    },
+    [language, navigate]
+  );
+
   const logout = useCallback(() => {
     setAuthSession(null);
+    setFirebaseIdToken(null);
+    signOut(auth).catch(() => undefined);
     if (typeof window !== 'undefined') {
       try {
         window.localStorage.removeItem(AUTH_SESSION_STORAGE_KEY);
@@ -319,12 +467,22 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
     setUploadedMaterials((prev) => {
       const filtered = prev.filter((m) => m.slug !== material.slug && m.id !== material.id);
       const next = [material, ...filtered];
-      // Persist to localStorage (keep pdfDataUrl for < 3MB files, strip runtime blob URLs before serializing)
+      // Persist Base64 pdfDataUrl across all 5 roles & reloads; strip runtime blob URLs before serializing
       const serializable = next.map((item) => ({
         ...item,
         pdfObjectUrl: undefined,
       }));
-      writeJsonStorage(UPLOADED_MATERIALS_STORAGE_KEY, serializable);
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(UPLOADED_MATERIALS_STORAGE_KEY, JSON.stringify(serializable));
+        } catch {
+          // If quota exceeded by older heavy PDFs, preserve newest uploaded PDF Base64 and trim oldest data URLs
+          const trimmed = serializable.map((item, idx) =>
+            idx === 0 ? item : { ...item, pdfDataUrl: undefined }
+          );
+          writeJsonStorage(UPLOADED_MATERIALS_STORAGE_KEY, trimmed);
+        }
+      }
       return next;
     });
   }, []);
@@ -337,6 +495,136 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
       return next;
     });
   }, []);
+
+  const saveExamPacket = useCallback(
+    async (packet: StoredExamPacket): Promise<StoredExamPacket> => {
+      const normalized: StoredExamPacket = {
+        ...packet,
+        dynamicToken: packet.dynamicToken.trim().toUpperCase(),
+        questionCount: packet.questions.length,
+      };
+
+      setCustomExamPackets((prev) => {
+        const next = [normalized, ...prev.filter((p) => p.id !== normalized.id)];
+        writeStoredExamPackets(next);
+        return next;
+      });
+
+      try {
+        const res = await fetch('/api/cbt/exams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: normalized.id,
+            title: normalized.title,
+            examType: normalized.examType,
+            subjectName: normalized.subjectName,
+            gradeLevel: normalized.gradeLevel,
+            durationMinutes: normalized.durationMinutes,
+            maxTabSwitches: normalized.maxTabSwitches,
+            dynamicToken: normalized.dynamicToken,
+            requireSeb: normalized.requireSeb,
+            questions: normalized.questions,
+            actorName: normalized.createdBy,
+          }),
+        });
+        if (res.ok) {
+          const saved = (await res.json()) as ExamPacketSummary & { dynamicToken?: string };
+          const reconciled: StoredExamPacket = {
+            ...normalized,
+            id: saved.id || normalized.id,
+            dynamicToken: saved.dynamicToken || normalized.dynamicToken,
+          };
+          setCustomExamPackets((prev) => {
+            const next = [reconciled, ...prev.filter((p) => p.id !== reconciled.id && p.id !== normalized.id)];
+            writeStoredExamPackets(next);
+            return next;
+          });
+          await refreshExamPackets();
+          return reconciled;
+        }
+      } catch {
+        // localStorage packet remains available across all 5 roles
+      }
+      return normalized;
+    },
+    [refreshExamPackets]
+  );
+
+  const appendQuestionsToExamPacket = useCallback(
+    async (examId: string, questions: ServerExamQuestion[], actorName = 'Guru Mata Pelajaran') => {
+      setCustomExamPackets((prev) => {
+        const found = prev.find((p) => p.id === examId);
+        if (!found) return prev;
+        const merged = [...found.questions];
+        for (const q of questions) {
+          if (!merged.some((e) => e.id === q.id)) merged.push(q);
+        }
+        const next = prev.map((p) =>
+          p.id === examId ? { ...p, questions: merged, questionCount: merged.length } : p
+        );
+        writeStoredExamPackets(next);
+        return next;
+      });
+
+      try {
+        const res = await fetch(`/api/cbt/exams/${examId}/questions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ questions, actorName }),
+        });
+        if (res.ok) {
+          await refreshExamPackets();
+        }
+      } catch {
+        // ignore network error; local state updated
+      }
+    },
+    [refreshExamPackets]
+  );
+
+  const updateLocalExamPacketToken = useCallback((examId: string, token: string) => {
+    const cleanToken = token.trim().toUpperCase();
+    setCustomExamPackets((prev) => {
+      if (!prev.some((p) => p.id === examId)) return prev;
+      const next = prev.map((p) => (p.id === examId ? { ...p, dynamicToken: cleanToken } : p));
+      writeStoredExamPackets(next);
+      return next;
+    });
+  }, []);
+
+  const activeExamPackets: ExamPacketSummary[] = React.useMemo(() => {
+    const map = new Map<string, ExamPacketSummary>();
+    for (const p of customExamPackets) {
+      map.set(p.id, {
+        id: p.id,
+        title: p.title,
+        examType: p.examType,
+        level: p.level,
+        subjectName: p.subjectName,
+        gradeLevel: p.gradeLevel,
+        durationMinutes: p.durationMinutes,
+        maxTabSwitches: p.maxTabSwitches,
+        questionCount: p.questions.length,
+        requireSeb: p.requireSeb,
+        createdBy: p.createdBy,
+        createdAt: p.createdAt,
+      });
+    }
+    for (const s of serverExamPackets) {
+      if (!map.has(s.id)) {
+        map.set(s.id, s);
+      } else {
+        const local = map.get(s.id)!;
+        map.set(s.id, {
+          ...s,
+          ...local,
+          questionCount: Math.max(s.questionCount, local.questionCount),
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [customExamPackets, serverExamPackets]);
 
   const safeRole = resolveSafeRole(activeRole);
 
@@ -354,8 +642,13 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
         isInGameArena,
         uploadedMaterials,
         aiGames,
+        customExamPackets,
+        serverExamPackets,
+        activeExamPackets,
+        firebaseIdToken,
         setActiveRole,
         loginWithCredentials,
+        loginWithGoogle,
         quickDemoLogin,
         logout,
         setLanguage,
@@ -365,6 +658,10 @@ export function TenantAndDemoProvider({ children }: { children: React.ReactNode 
         applyPreset,
         addUploadedMaterial,
         saveAiGame,
+        saveExamPacket,
+        appendQuestionsToExamPacket,
+        updateLocalExamPacketToken,
+        refreshExamPackets,
       }}
     >
       {children}

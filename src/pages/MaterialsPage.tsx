@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { BookOpen, Download, FileText, Newspaper, X } from 'lucide-react';
+import { BookOpen, FileText, Newspaper, Search } from 'lucide-react';
 import { SEED_MATERIALS } from '../lib/seed-data';
 import { useTenantAndDemo } from '../context/TenantAndDemoContext';
-import { buildGeneratedPdfBlobUrl } from '../lib/pdf-helper';
+import { PdfMaterialViewerModal } from '../components/materials/PdfMaterialViewerModal';
 import type { LearningMaterial } from '../types/lms';
 
 const TYPE_LABEL: Record<LearningMaterial['materialType'], string> = {
@@ -15,8 +15,8 @@ export function MaterialsPage() {
   const { uploadedMaterials } = useTenantAndDemo();
   const [serverMaterials, setServerMaterials] = useState<LearningMaterial[]>(SEED_MATERIALS);
   const [typeFilter, setTypeFilter] = useState<'ALL' | LearningMaterial['materialType']>('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<LearningMaterial | null>(null);
-  const [activePdfUrl, setActivePdfUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetch('/api/materials')
@@ -50,24 +50,6 @@ export function MaterialsPage() {
 
   const openMaterial = (mat: LearningMaterial) => {
     setSelected(mat);
-    if (mat.materialType === 'MODUL_PDF') {
-      const resolvedUrl =
-        mat.pdfObjectUrl ||
-        mat.pdfDataUrl ||
-        buildGeneratedPdfBlobUrl({
-          title: mat.title,
-          subjectName: mat.subjectName,
-          authorName: mat.authorName,
-          level: mat.level,
-          gradeLevel: mat.gradeLevel,
-          summary: mat.summary,
-          contentMarkdown: mat.contentMarkdown,
-        });
-      setActivePdfUrl(resolvedUrl);
-    } else {
-      setActivePdfUrl(null);
-    }
-
     fetch(`/api/materials/${mat.slug}/view`, { method: 'POST' })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -80,41 +62,63 @@ export function MaterialsPage() {
       .catch(() => undefined);
   };
 
-  const closeReader = () => {
-    setSelected(null);
-    setActivePdfUrl(null);
-  };
-
-  const filtered = materials.filter((m) => typeFilter === 'ALL' || m.materialType === typeFilter);
+  const filtered = materials.filter((m) => {
+    if (typeFilter !== 'ALL' && m.materialType !== typeFilter) return false;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      m.title.toLowerCase().includes(q) ||
+      m.subjectName.toLowerCase().includes(q) ||
+      m.authorName.toLowerCase().includes(q)
+    );
+  });
 
   return (
     <div className="mx-auto max-w-[1360px] px-6 py-10 space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-6">
         <div>
-          <h1 className="text-3xl font-extrabold text-slate-900">Perpustakaan Materi & Modul PDF</h1>
+          <p className="text-xs font-bold uppercase tracking-wide text-brand-primary">
+            REPOSITORI DIGITAL LINTAS ROLE
+          </p>
+          <h1 className="mt-1 text-3xl font-extrabold text-slate-900">
+            Perpustakaan Materi & Modul PDF
+          </h1>
           <p className="mt-1.5 text-sm text-slate-600">
-            Koleksi modul PDF dari guru, lembar kerja peserta didik, dan artikel literasi digital.
+            Koleksi modul PDF dari guru, lembar kerja peserta didik, dan artikel literasi digital yang dapat dibaca dan diunduh oleh seluruh peran.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
-          {([
-            { id: 'ALL', label: 'Semua' },
-            { id: 'MODUL_PDF', label: 'Modul PDF' },
-            { id: 'INTERACTIVE_LKPD', label: 'LKPD' },
-            { id: 'ARTICLE_BLOG', label: 'Artikel' },
-          ] as const).map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTypeFilter(t.id)}
-              className={`rounded-md px-3.5 py-1.5 text-xs font-semibold ${
-                typeFilter === t.id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative w-56 sm:w-64">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari judul, mapel, guru..."
+              className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-3 text-xs text-slate-900 focus:border-brand-primary focus:outline-none"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
+            {([
+              { id: 'ALL', label: 'Semua' },
+              { id: 'MODUL_PDF', label: 'Modul PDF' },
+              { id: 'INTERACTIVE_LKPD', label: 'LKPD' },
+              { id: 'ARTICLE_BLOG', label: 'Artikel' },
+            ] as const).map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTypeFilter(t.id)}
+                className={`rounded-md px-3.5 py-1.5 text-xs font-semibold whitespace-nowrap ${
+                  typeFilter === t.id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -155,7 +159,7 @@ export function MaterialsPage() {
               <button
                 type="button"
                 onClick={() => openMaterial(mat)}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-primary px-4 py-2 text-xs font-semibold text-brand-primary-fg hover:opacity-90"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-primary px-4 py-2 text-xs font-semibold text-brand-primary-fg hover:opacity-90 whitespace-nowrap"
               >
                 {mat.materialType === 'MODUL_PDF' ? (
                   <FileText className="h-3.5 w-3.5" />
@@ -171,74 +175,10 @@ export function MaterialsPage() {
         ))}
       </div>
 
-      {/* Built-in PDF Viewer & Markdown Reader Modal */}
-      {selected && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={selected.title}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-xs"
-        >
-          <div
-            className={`max-h-[94vh] w-full overflow-y-auto rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-2xl ${
-              selected.materialType === 'MODUL_PDF' ? 'max-w-5xl' : 'max-w-2xl'
-            }`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 pb-4">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-brand-primary">
-                  {TYPE_LABEL[selected.materialType]} · {selected.subjectName} · {selected.level} Kelas{' '}
-                  {selected.gradeLevel}
-                </p>
-                <h3 className="mt-1 text-lg sm:text-xl font-bold text-slate-900">{selected.title}</h3>
-                <p className="mt-1 text-xs text-slate-500">
-                  Penulis: {selected.authorName}
-                  {selected.fileName ? ` · Berkas: ${selected.fileName}` : ''}
-                  {selected.fileSizeLabel ? ` (${selected.fileSizeLabel})` : ''}
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {selected.materialType === 'MODUL_PDF' && activePdfUrl && (
-                  <a
-                    href={activePdfUrl}
-                    download={selected.fileName || `${selected.slug}.pdf`}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-brand-primary px-3.5 py-2 text-xs font-bold text-brand-primary-fg hover:opacity-90"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    <span>Unduh PDF</span>
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={closeReader}
-                  aria-label="Tutup pembaca materi"
-                  className="rounded-lg border border-slate-200 p-1.5 text-slate-500 hover:bg-slate-100"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-
-            {selected.materialType === 'MODUL_PDF' && activePdfUrl ? (
-              <div className="mt-4 space-y-3">
-                <iframe
-                  src={activePdfUrl}
-                  title={selected.title}
-                  className="w-full h-[80vh] rounded-xl border border-slate-200 bg-slate-100"
-                />
-                <p className="text-xs text-slate-500">
-                  Ringkasan: {selected.summary}
-                </p>
-              </div>
-            ) : (
-              <div className="mt-5 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-                {selected.contentMarkdown}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <PdfMaterialViewerModal
+        material={selected}
+        onClose={() => setSelected(null)}
+      />
     </div>
   );
 }

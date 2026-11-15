@@ -13,6 +13,17 @@ import type { ServerExamQuestion, GameEngineType } from '../types/lms';
 import { authenticateDemoAccount, DEMO_ACCOUNT_LIST, resolveSafeRole } from './auth-users';
 import { formatFileSize } from './pdf-helper';
 import { generateSmartGameConfig } from './ai-game-generator';
+import {
+  buildQuestionTemplateFile,
+  generateExamToken6,
+  generateHotsCbtQuestions,
+  parseQuestionBankFile,
+} from './cbt-bank-parser';
+import {
+  isPostgresConfigured,
+  resolvePostgresPoolConfig,
+  shouldUseSslForConnectionString,
+} from './db-config';
 
 test('deterministicShuffle produces stable output for same seed and different for different seeds', () => {
   const items = ['Q1', 'Q2', 'Q3', 'Q4', 'Q5'];
@@ -159,4 +170,53 @@ test('generateSmartGameConfig produces valid engine schemas for all 5 game engin
       assert.ok(Array.isArray((result.config as { phishingCases: unknown[] }).phishingCases));
     }
   }
+});
+
+test('cbt-bank-parser parses CSV, JSON, and TXT templates accurately and generates 5 HOTS questions', () => {
+  const token = generateExamToken6('Matematika');
+  assert.equal(token.length, 6);
+  assert.ok(token.startsWith('MAT'));
+
+  for (const fmt of ['csv', 'json', 'txt'] as const) {
+    const tpl = buildQuestionTemplateFile(fmt, 'Matematika');
+    const parsed = parseQuestionBankFile(tpl.content, tpl.fileName);
+    assert.equal(parsed.format, fmt);
+    assert.equal(parsed.errors.length, 0);
+    assert.equal(parsed.questions.length, 2);
+    assert.equal(parsed.questions[0].options.length, 5);
+    assert.ok(['A', 'B', 'C', 'D', 'E'].includes(parsed.questions[0].correctOptionId));
+  }
+
+  const hots = generateHotsCbtQuestions({
+    subjectName: 'Matematika',
+    level: 'SMA',
+    gradeLevel: 10,
+  });
+  assert.equal(hots.length, 5);
+  assert.equal(hots[0].options.length, 5);
+});
+
+test('db-config resolves Vercel DATABASE_URL/POSTGRES_URL, Cloud SQL host vars, and fallback cleanly', () => {
+  assert.equal(isPostgresConfigured({}), false);
+  assert.equal(resolvePostgresPoolConfig({}).mode, 'none');
+
+  const neon = resolvePostgresPoolConfig({
+    DATABASE_URL: 'postgresql://user:pass@ep-cool-rain.us-east-2.aws.neon.tech/neondb?sslmode=require',
+  });
+  assert.equal(neon.configured, true);
+  assert.equal(neon.mode, 'connectionString');
+  assert.deepEqual(neon.ssl, { rejectUnauthorized: false });
+
+  const localUrl = shouldUseSslForConnectionString('postgresql://postgres:pass@localhost:5432/lms');
+  assert.equal(localUrl, false);
+
+  const cloudSql = resolvePostgresPoolConfig({
+    SQL_HOST: '10.0.0.5',
+    SQL_USER: 'app',
+    SQL_PASSWORD: 'secret',
+    SQL_DB_NAME: 'cendekia',
+  });
+  assert.equal(cloudSql.configured, true);
+  assert.equal(cloudSql.mode, 'host');
+  assert.equal(cloudSql.host, '10.0.0.5');
 });

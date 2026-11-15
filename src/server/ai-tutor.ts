@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import type { Request, Response } from 'express';
-import { getSchoolConfig } from './db';
+import { getSchoolConfigPg } from '../db/lms-repo.ts';
+import { DEFAULT_SCHOOL_CONFIG } from '../lib/seed-data.ts';
 
 interface TutorRequestBody {
   message: string;
@@ -84,7 +85,12 @@ export async function handleAiTutorChat(req: Request, res: Response): Promise<vo
     return;
   }
 
-  const school = getSchoolConfig();
+  let school = DEFAULT_SCHOOL_CONFIG;
+  try {
+    school = await getSchoolConfigPg();
+  } catch {
+    school = DEFAULT_SCHOOL_CONFIG;
+  }
   const level = body.level || 'SMA';
   const grade = Number(body.grade || 10);
   const subject = body.subject || 'Informatika';

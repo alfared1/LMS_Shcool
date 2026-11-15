@@ -1,19 +1,63 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { BookMarked, CheckCircle2, Palette, Save, Users } from 'lucide-react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
+import { BookMarked, CheckCircle2, ClipboardCheck, Eye, FileText, FolderOpen, Palette, Save, Search, Users } from 'lucide-react';
 import { useTenantAndDemo } from '../context/TenantAndDemoContext';
-import { WHITE_LABEL_PRESETS } from '../lib/seed-data';
+import { SEED_MATERIALS, WHITE_LABEL_PRESETS } from '../lib/seed-data';
 import { DEMO_ACCOUNT_LIST } from '../lib/auth-users';
 import { SchoolCrestLogo } from '../components/layout/SchoolCrestLogo';
-import type { SchoolConfig } from '../types/lms';
+import { CbtExamBankManager } from '../components/cbt/CbtExamBankManager';
+import { PdfMaterialViewerModal } from '../components/materials/PdfMaterialViewerModal';
+import type { LearningMaterial, SchoolConfig } from '../types/lms';
 
 export function WhiteLabelAdminPage() {
-  const { config, updateTenantConfig, applyPreset, setActiveRole } = useTenantAndDemo();
-  const [adminTab, setAdminTab] = useState<'whitelabel' | 'users' | 'curriculum'>('whitelabel');
+  const { config, updateTenantConfig, applyPreset, setActiveRole, uploadedMaterials } = useTenantAndDemo();
+  const [adminTab, setAdminTab] = useState<'whitelabel' | 'users' | 'curriculum' | 'cbt_bank' | 'materials_audit'>('whitelabel');
   const [form, setForm] = useState<SchoolConfig>(config);
   const [academicYear, setAcademicYear] = useState('2026/2027 - Semester Ganjil');
   const [defaultKkm, setDefaultKkm] = useState(75);
   const [savedToast, setSavedToast] = useState<string | null>(null);
+  const [serverMaterials, setServerMaterials] = useState<LearningMaterial[]>(SEED_MATERIALS);
+  const [materialSearch, setMaterialSearch] = useState('');
+  const [previewMaterial, setPreviewMaterial] = useState<LearningMaterial | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    fetch('/api/materials')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) setServerMaterials(data);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const allMaterials = useMemo(() => {
+    const map = new Map<string, LearningMaterial>();
+    for (const m of uploadedMaterials) map.set(m.slug, m);
+    for (const m of serverMaterials) {
+      if (!map.has(m.slug)) {
+        map.set(m.slug, m);
+      } else {
+        const existing = map.get(m.slug)!;
+        map.set(m.slug, {
+          ...m,
+          ...existing,
+          pdfObjectUrl: existing.pdfObjectUrl || m.pdfObjectUrl,
+          pdfDataUrl: existing.pdfDataUrl || m.pdfDataUrl,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [uploadedMaterials, serverMaterials]);
+
+  const filteredMaterials = useMemo(() => {
+    const q = materialSearch.trim().toLowerCase();
+    if (!q) return allMaterials;
+    return allMaterials.filter(
+      (m) =>
+        m.title.toLowerCase().includes(q) ||
+        m.subjectName.toLowerCase().includes(q) ||
+        m.authorName.toLowerCase().includes(q)
+    );
+  }, [allMaterials, materialSearch]);
 
   useEffect(() => {
     return () => {
@@ -59,6 +103,8 @@ export function WhiteLabelAdminPage() {
         <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
           {([
             { id: 'whitelabel', label: 'White-Label Customizer', icon: Palette },
+            { id: 'cbt_bank', label: '📝 Manajemen Ujian & Bank Soal CBT', icon: ClipboardCheck },
+            { id: 'materials_audit', label: '📚 Repositori Materi (PDF)', icon: FolderOpen },
             { id: 'users', label: 'Manajemen Pengguna', icon: Users },
             { id: 'curriculum', label: 'Tahun Ajaran & Kurikulum', icon: BookMarked },
           ] as const).map((t) => {
@@ -68,7 +114,7 @@ export function WhiteLabelAdminPage() {
                 key={t.id}
                 type="button"
                 onClick={() => setAdminTab(t.id)}
-                className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-xs font-semibold transition-colors ${
+                className={`inline-flex items-center gap-1.5 rounded-md px-3.5 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
                   adminTab === t.id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
@@ -85,6 +131,98 @@ export function WhiteLabelAdminPage() {
           <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
           <span>{savedToast}</span>
         </div>
+      )}
+
+      {adminTab === 'cbt_bank' && <CbtExamBankManager />}
+
+      {adminTab === 'materials_audit' && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 space-y-5">
+          <div className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-100 pb-4">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                Audit Repositori Materi & Modul PDF ({allMaterials.length} Dokumen)
+              </h2>
+              <p className="text-xs text-slate-500">
+                Seluruh modul ajar PDF unggahan guru tersimpan dan dapat ditinjau lintas peran oleh Administrator Sekolah.
+              </p>
+            </div>
+            <div className="relative w-full sm:w-72">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={materialSearch}
+                onChange={(e) => setMaterialSearch(e.target.value)}
+                placeholder="Cari judul, mapel, atau guru..."
+                className="w-full rounded-xl border border-slate-300 bg-slate-50 py-2 pl-9 pr-3 text-xs text-slate-900 focus:border-brand-primary focus:bg-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <span className="text-xs font-semibold text-slate-500">Total Materi Sekolah</span>
+              <p className="mt-1 font-mono text-2xl font-extrabold tabular-nums text-slate-900">
+                {allMaterials.length}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <span className="text-xs font-semibold text-slate-500">Dokumen Modul PDF</span>
+              <p className="mt-1 font-mono text-2xl font-extrabold tabular-nums text-brand-primary">
+                {allMaterials.filter((m) => m.materialType === 'MODUL_PDF').length}
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <span className="text-xs font-semibold text-slate-500">Unggahan Baru Guru (Sesi)</span>
+              <p className="mt-1 font-mono text-2xl font-extrabold tabular-nums text-emerald-700">
+                {uploadedMaterials.length}
+              </p>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="py-3 pr-4">Judul Materi</th>
+                  <th className="py-3 px-3">Mapel & Jenjang</th>
+                  <th className="py-3 px-3">Guru Pengunggah</th>
+                  <th className="py-3 px-3">Berkas / Ukuran</th>
+                  <th className="py-3 pl-3 text-right">Pratinjau</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredMaterials.map((mat) => (
+                  <tr key={mat.id} className="hover:bg-slate-50">
+                    <td className="py-3 pr-4">
+                      <div className="flex items-center gap-2 font-semibold text-slate-900">
+                        <FileText className="h-4 w-4 shrink-0 text-brand-primary" />
+                        <span>{mat.title}</span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] text-slate-500 line-clamp-1">{mat.summary}</p>
+                    </td>
+                    <td className="py-3 px-3 text-slate-700 whitespace-nowrap">
+                      {mat.subjectName} · {mat.level} Kls {mat.gradeLevel}
+                    </td>
+                    <td className="py-3 px-3 text-slate-700">{mat.authorName}</td>
+                    <td className="py-3 px-3 font-mono text-slate-600">
+                      {mat.fileName ? `${mat.fileName} (${mat.fileSizeLabel || 'PDF'})` : mat.materialType}
+                    </td>
+                    <td className="py-3 pl-3 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMaterial(mat)}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-brand-primary px-3 py-1.5 text-xs font-semibold text-brand-primary-fg hover:opacity-90 whitespace-nowrap"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>Pratinjau PDF</span>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {adminTab === 'users' && (
@@ -413,6 +551,11 @@ export function WhiteLabelAdminPage() {
       </form>
         </>
       )}
+
+      <PdfMaterialViewerModal
+        material={previewMaterial}
+        onClose={() => setPreviewMaterial(null)}
+      />
     </div>
   );
 }

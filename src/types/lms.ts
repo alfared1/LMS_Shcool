@@ -83,6 +83,7 @@ export interface ClientExamQuestion {
   id: string;
   questionText: string;
   topic: string;
+  imageUrl?: string;
   options: ExamOption[];
 }
 
@@ -91,16 +92,30 @@ export interface ServerExamQuestion extends ClientExamQuestion {
   weight: number;
 }
 
+export type CbtExamType = 'UTS' | 'UAS' | 'Ujian Sekolah' | 'Kuis Harian' | 'USBN';
+
 export interface ExamPacketSummary {
   id: string;
   title: string;
-  examType: 'UTS' | 'UAS' | 'USBN';
+  examType: CbtExamType;
+  level?: 'SMP' | 'SMA';
   subjectName: string;
   gradeLevel: number;
   durationMinutes: number;
   maxTabSwitches: number;
   questionCount: number;
   requireSeb: boolean;
+  dynamicToken?: string;
+  createdBy?: string;
+  createdAt?: string;
+}
+
+export interface StoredExamPacket extends ExamPacketSummary {
+  level: 'SMP' | 'SMA';
+  dynamicToken: string;
+  questions: ServerExamQuestion[];
+  createdBy: string;
+  createdAt: string;
 }
 
 export interface ViolationLogEntry {

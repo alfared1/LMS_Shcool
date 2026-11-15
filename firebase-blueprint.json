@@ -1,0 +1,175 @@
+{
+  "entities": {
+    "UserPublicProfile": {
+      "title": "UserPublicProfile",
+      "description": "Public non-PII user profile synced with Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID."
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Display name shown in the LMS."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["TEACHER", "STUDENT", "SCHOOL_ADMIN", "OPERATIONAL", "PARENT"],
+          "description": "Assigned LMS role."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when profile was last updated."
+        }
+      },
+      "required": ["uid", "displayName", "role", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document containing the user email address.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "minLength": 3,
+          "maxLength": 160,
+          "description": "Verified account email address."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of update."
+        }
+      },
+      "required": ["uid", "email", "updatedAt"]
+    },
+    "AdminGrant": {
+      "title": "AdminGrant",
+      "description": "Server-managed administrator membership record.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "grantedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "grantedAt"]
+    },
+    "UserPreferences": {
+      "title": "UserPreferences",
+      "description": "Per-user LMS workspace preferences synced across devices.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "language": {
+          "type": "string",
+          "enum": ["id", "en"]
+        },
+        "lastActiveRole": {
+          "type": "string",
+          "enum": ["TEACHER", "STUDENT", "SCHOOL_ADMIN", "OPERATIONAL", "PARENT"]
+        },
+        "favoriteSubjects": {
+          "type": "array",
+          "description": "Bounded list of up to 10 favorite subject names."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "language", "lastActiveRole", "favoriteSubjects", "updatedAt"]
+    },
+    "StudyBookmark": {
+      "title": "StudyBookmark",
+      "description": "Per-user bookmarked learning material or educational game.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "itemType": {
+          "type": "string",
+          "enum": ["MATERIAL", "GAME"]
+        },
+        "itemSlug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "itemTitle": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "subjectName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "userId", "itemType", "itemSlug", "itemTitle", "subjectName", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublicProfile" },
+      "description": "Non-PII user profile documents keyed by Firebase Auth UID."
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII subcollection holding user email addresses."
+    },
+    "/admins/{userId}": {
+      "schema": { "$ref": "#/entities/AdminGrant" },
+      "description": "Server-managed administrator allowlist."
+    },
+    "/userPreferences/{userId}": {
+      "schema": { "$ref": "#/entities/UserPreferences" },
+      "description": "Synced LMS user language, role, and subject preferences."
+    },
+    "/studyBookmarks/{bookmarkId}": {
+      "schema": { "$ref": "#/entities/StudyBookmark" },
+      "description": "User-owned bookmarks for learning materials and educational games."
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   CheckCircle2,
   Code2,
+  Eye,
   FileText,
   Gamepad2,
   Loader2,
@@ -19,7 +20,9 @@ import {
   generateSmartGameConfig,
   type GameDifficulty,
 } from '../lib/ai-game-generator';
-import { formatFileSize } from '../lib/pdf-helper';
+import { formatFileSize, readFileAsDataUrl } from '../lib/pdf-helper';
+import { CbtExamBankManager } from '../components/cbt/CbtExamBankManager';
+import { PdfMaterialViewerModal } from '../components/materials/PdfMaterialViewerModal';
 import type {
   EducationalGame,
   GameEngineType,
@@ -46,10 +49,11 @@ export function TeacherDashboardPage() {
   const navigate = useNavigate();
   const { roleProfile, addUploadedMaterial, uploadedMaterials, saveAiGame } = useTenantAndDemo();
 
-  const [tab, setTab] = useState<'gradebook' | 'ai_studio' | 'material'>('gradebook');
+  const [tab, setTab] = useState<'gradebook' | 'cbt_bank' | 'ai_studio' | 'material'>('gradebook');
   const [rapor, setRapor] = useState<ReportCardDTO>(SEED_REPORT_CARD);
   const [savingCode, setSavingCode] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [previewMaterial, setPreviewMaterial] = useState<LearningMaterial | null>(null);
 
   // Module 3: AI Prompt-to-Game & Quiz Studio state
   const [aiEngine, setAiEngine] = useState<GameEngineType>('MILLIONAIRE_QUIZ');
@@ -310,7 +314,7 @@ export function TeacherDashboardPage() {
   };
 
   // --- Module 2 Handlers: PDF Upload ---
-  const processSelectedPdf = (file: File | null) => {
+  const processSelectedPdf = async (file: File | null) => {
     setPdfError(null);
     if (!file) return;
 
@@ -331,15 +335,14 @@ export function TeacherDashboardPage() {
     const objectUrl = URL.createObjectURL(file);
     setPdfPreviewUrl(objectUrl);
 
-    // Persist Base64 Data URL for files < 3MB so it survives route switches & reloads
-    if (file.size < 3 * 1024 * 1024) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setPdfDataUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    // Persist Base64 Data URL for files <= 3.5MB so it survives route switches, reloads & all 5 roles
+    if (file.size <= 3.5 * 1024 * 1024) {
+      try {
+        const encoded = await readFileAsDataUrl(file);
+        setPdfDataUrl(encoded);
+      } catch {
+        setPdfDataUrl(null);
+      }
     } else {
       setPdfDataUrl(null);
     }
@@ -354,11 +357,19 @@ export function TeacherDashboardPage() {
     }
 
     setIsUploadingPdf(true);
-    setUploadProgress(20);
+    setUploadProgress(25);
 
-    await new Promise((r) => setTimeout(r, 220));
-    setUploadProgress(60);
-    await new Promise((r) => setTimeout(r, 220));
+    let resolvedDataUrl = pdfDataUrl;
+    if (!resolvedDataUrl && selectedPdfFile && selectedPdfFile.size <= 3.5 * 1024 * 1024) {
+      try {
+        resolvedDataUrl = await readFileAsDataUrl(selectedPdfFile);
+      } catch {
+        resolvedDataUrl = null;
+      }
+    }
+
+    setUploadProgress(65);
+    await new Promise((r) => setTimeout(r, 180));
     setUploadProgress(100);
 
     const fileSizeLabel = selectedPdfFile ? formatFileSize(selectedPdfFile.size) : undefined;
@@ -382,7 +393,7 @@ export function TeacherDashboardPage() {
       fileSizeBytes: selectedPdfFile?.size,
       fileSizeLabel,
       pdfObjectUrl: pdfPreviewUrl || undefined,
-      pdfDataUrl: pdfDataUrl || undefined,
+      pdfDataUrl: resolvedDataUrl || undefined,
     };
 
     try {
@@ -442,6 +453,7 @@ export function TeacherDashboardPage() {
         <div className="flex flex-wrap items-center gap-1 rounded-lg bg-slate-100 p-1">
           {([
             { id: 'gradebook', label: 'Buku Nilai Otomatis' },
+            { id: 'cbt_bank', label: '📝 Manajemen Ujian & Bank Soal CBT' },
             { id: 'ai_studio', label: '✨ AI Game & Quiz Studio' },
             { id: 'material', label: 'Unggah Materi PDF' },
           ] as const).map((t) => (
@@ -449,7 +461,7 @@ export function TeacherDashboardPage() {
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className={`rounded-md px-3.5 py-2 text-xs font-semibold transition-colors ${
+              className={`rounded-md px-3.5 py-2 text-xs font-semibold transition-colors whitespace-nowrap ${
                 tab === t.id ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -541,7 +553,10 @@ export function TeacherDashboardPage() {
         </section>
       )}
 
-      {/* TAB 2: AI PROMPT-TO-GAME & QUIZ STUDIO */}
+      {/* TAB 2: MANAJEMEN UJIAN & BANK SOAL CBT */}
+      {tab === 'cbt_bank' && <CbtExamBankManager />}
+
+      {/* TAB 3: AI PROMPT-TO-GAME & QUIZ STUDIO */}
       {tab === 'ai_studio' && (
         <div className="grid gap-6 lg:grid-cols-12">
           {/* Left: Prompt Builder */}
@@ -1064,14 +1079,24 @@ export function TeacherDashboardPage() {
             ) : (
               <div className="space-y-3">
                 {uploadedMaterials.map((m) => (
-                  <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-1">
+                  <div key={m.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
                     <div className="flex items-center justify-between text-[11px] font-semibold text-brand-primary">
                       <span>{m.subjectName} · {m.level} Kelas {m.gradeLevel}</span>
                       {m.fileSizeLabel && <span className="font-mono text-slate-500">{m.fileSizeLabel}</span>}
                     </div>
                     <p className="text-sm font-bold text-slate-900">{m.title}</p>
                     <p className="text-xs text-slate-600 line-clamp-2">{m.summary}</p>
-                    <p className="text-[11px] text-slate-500">Oleh {m.authorName}</p>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <p className="text-[11px] text-slate-500">Oleh {m.authorName}</p>
+                      <button
+                        type="button"
+                        onClick={() => setPreviewMaterial(m)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 hover:border-brand-primary hover:text-brand-primary"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        <span>Buka / Pratinjau PDF</span>
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1079,6 +1104,11 @@ export function TeacherDashboardPage() {
           </section>
         </div>
       )}
+
+      <PdfMaterialViewerModal
+        material={previewMaterial}
+        onClose={() => setPreviewMaterial(null)}
+      />
     </div>
   );
 }

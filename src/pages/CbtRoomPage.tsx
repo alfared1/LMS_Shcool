@@ -6,8 +6,11 @@ import { QuestionNavigatorGrid } from '../components/cbt/QuestionNavigatorGrid';
 import { ViolationShieldModal } from '../components/cbt/ViolationShieldModal';
 import {
   clearLiveCbtSyncEntry,
+  getLocalExamSession,
   mergeAttemptWithLiveSync,
+  submitLocalExamSession,
   writeLiveCbtSyncEntry,
+  writeLocalAttempt,
 } from '../lib/cbt-sync';
 import type { ClientExamQuestion, ExamAttemptDTO } from '../types/lms';
 
@@ -57,12 +60,19 @@ export function CbtRoomPage() {
   const loadSession = useCallback(async () => {
     try {
       const res = await fetch(`/api/cbt/session/${examId}?nisn=0084921034`);
-      if (!res.ok) {
+      let data: { attempt: ExamAttemptDTO; questions: ClientExamQuestion[] } | null = null;
+      if (res.ok) {
+        data = (await res.json()) as { attempt: ExamAttemptDTO; questions: ClientExamQuestion[] };
+      } else {
+        data = getLocalExamSession(examId, '0084921034');
+      }
+
+      if (!data) {
         setErrorMsg('Sesi ujian belum dimulai. Silakan masukkan Token Ujian di Lobi CBT.');
         setLoading(false);
         return;
       }
-      const data = (await res.json()) as { attempt: ExamAttemptDTO; questions: ClientExamQuestion[] };
+
       // If server proctor unlocked & reset violationCount to 0, clear stale local sync
       if (!data.attempt.isLockedByProctor && data.attempt.violationCount === 0) {
         clearLiveCbtSyncEntry(data.attempt.id);
@@ -81,6 +91,20 @@ export function CbtRoomPage() {
       setSecondsLeft(diffSec);
       setLoading(false);
     } catch {
+      const localFallback = getLocalExamSession(examId, '0084921034');
+      if (localFallback) {
+        setAttempt(localFallback.attempt);
+        setQuestions(localFallback.questions);
+        setAnswers(localFallback.attempt.answers || {});
+        setFlaggedIds(localFallback.attempt.flaggedIds || []);
+        const diffSec = Math.max(
+          0,
+          Math.floor((new Date(localFallback.attempt.expiresAt).getTime() - Date.now()) / 1000)
+        );
+        setSecondsLeft(diffSec);
+        setLoading(false);
+        return;
+      }
       setErrorMsg('Gagal memuat ruang ujian CBT.');
       setLoading(false);
     }
@@ -191,6 +215,17 @@ export function CbtRoomPage() {
       } catch {
         // ignore storage errors
       }
+      if (curr.id.startsWith('attempt-local-')) {
+        const updatedLocal: ExamAttemptDTO = {
+          ...curr,
+          answers: nextAnswers,
+          flaggedIds: nextFlagged,
+        };
+        setAttempt(updatedLocal);
+        writeLocalAttempt(updatedLocal);
+        setSyncStatus('Tersimpan');
+        return;
+      }
       setSyncStatus('Menyimpan...');
       if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
       saveTimerRef.current = window.setTimeout(async () => {
@@ -241,10 +276,28 @@ export function CbtRoomPage() {
 
   const handleSubmitExam = async () => {
     if (!attempt) return;
-    const res = await fetch(`/api/cbt/attempts/${attempt.id}/submit`, { method: 'POST' });
-    if (res.ok) {
-      const submitted = (await res.json()) as ExamAttemptDTO;
-      setAttempt(submitted);
+    if (attempt.id.startsWith('attempt-local-')) {
+      const localSubmitted = submitLocalExamSession(attempt.id);
+      if (localSubmitted) {
+        setAttempt(localSubmitted);
+        clearLiveCbtSyncEntry(attempt.id);
+      }
+      return;
+    }
+    try {
+      const res = await fetch(`/api/cbt/attempts/${attempt.id}/submit`, { method: 'POST' });
+      if (res.ok) {
+        const submitted = (await res.json()) as ExamAttemptDTO;
+        setAttempt(submitted);
+        clearLiveCbtSyncEntry(attempt.id);
+        return;
+      }
+    } catch {
+      // fallback to local grading if offline
+    }
+    const localSubmitted = submitLocalExamSession(attempt.id);
+    if (localSubmitted) {
+      setAttempt(localSubmitted);
       clearLiveCbtSyncEntry(attempt.id);
     }
   };
@@ -358,9 +411,19 @@ export function CbtRoomPage() {
                 </div>
               </div>
 
-              <p className={`mt-6 font-medium leading-relaxed text-slate-900 ${fontSizeClass}`}>
+              <p className={`mt-6 font-medium leading-relaxed text-slate-900 whitespace-pre-line ${fontSizeClass}`}>
                 {currentQ.questionText}
               </p>
+
+              {currentQ.imageUrl && (
+                <div className="mt-4">
+                  <img
+                    src={currentQ.imageUrl}
+                    alt={`Lampiran gambar soal nomor ${currentIndex + 1}`}
+                    className="max-h-72 rounded-xl border border-slate-200 bg-slate-50 object-contain"
+                  />
+                </div>
+              )}
 
               <div className="mt-6 space-y-3">
                 {currentQ.options.map((opt, idx) => {

@@ -26,7 +26,7 @@ export function Navbar() {
       : [
           { to: '/', label: 'Beranda' },
           { to: '/games', label: 'Katalog Game' },
-          { to: '/materials', label: 'Materi' },
+          { to: '/materials', label: 'Perpustakaan PDF' },
           { to: '/virtual-lab', label: 'Virtual Lab' },
           { to: '/cbt', label: 'Ujian CBT' },
         ];

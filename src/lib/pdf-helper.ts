@@ -1,3 +1,5 @@
+import type { LearningMaterial } from '../types/lms';
+
 export function formatFileSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 KB';
   if (bytes < 1024) return `${bytes} B`;
@@ -5,6 +7,60 @@ export function formatFileSize(bytes: number): string {
   if (kb < 1024) return `${kb.toFixed(1)} KB`;
   const mb = kb / 1024;
   return `${mb.toFixed(2)} MB`;
+}
+
+export function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error('Gagal membaca berkas sebagai Data URL.'));
+      }
+    };
+    reader.onerror = () => reject(new Error('Terjadi kesalahan saat membaca berkas.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Converts a Base64 Data URL (`data:application/pdf;base64,...`) into a fresh
+ * browser Blob URL so <iframe>, <embed>, download, and "Open in New Tab"
+ * work reliably across all 5 roles and route switches without Chromium blocking data: URLs.
+ */
+export function dataUrlToBlobUrl(dataUrl: string): string {
+  if (!dataUrl || typeof window === 'undefined') return dataUrl;
+  if (!dataUrl.startsWith('data:')) return dataUrl;
+
+  try {
+    const commaIdx = dataUrl.indexOf(',');
+    if (commaIdx === -1) return dataUrl;
+    const header = dataUrl.slice(5, commaIdx);
+    const payload = dataUrl.slice(commaIdx + 1);
+    const mimeType = header.split(';')[0] || 'application/pdf';
+    const isBase64 = header.includes(';base64');
+
+    let bytes: Uint8Array;
+    if (isBase64) {
+      const binaryStr = window.atob(payload);
+      bytes = new Uint8Array(binaryStr.length);
+      for (let i = 0; i < binaryStr.length; i += 1) {
+        bytes[i] = binaryStr.charCodeAt(i);
+      }
+    } else {
+      const decoded = decodeURIComponent(payload);
+      bytes = new TextEncoder().encode(decoded);
+    }
+
+    if (typeof Blob !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: mimeType });
+      return URL.createObjectURL(blob);
+    }
+  } catch {
+    return dataUrl;
+  }
+  return dataUrl;
 }
 
 function sanitizePdfAscii(text: string): string {
@@ -41,8 +97,8 @@ function wrapLines(text: string, maxChars = 78): string[] {
 
 /**
  * Generates a valid single-page PDF binary Blob URL on the client so seeded
- * MODUL_PDF entries always open cleanly inside Built-in PDF Viewer <iframe>
- * and support real .pdf downloads.
+ * entries always open cleanly inside Built-in PDF Viewer <iframe>
+ * and support real .pdf downloads & new-tab previews.
  */
 export function buildGeneratedPdfBlobUrl(params: {
   title: string;
@@ -101,4 +157,27 @@ export function buildGeneratedPdfBlobUrl(params: {
     return URL.createObjectURL(blob);
   }
   return `data:application/pdf;charset=utf-8,${encodeURIComponent(pdf)}`;
+}
+
+/**
+ * Resolves a persistent, cross-role playable PDF URL.
+ * Prefers stored Base64 Data URL converted to a fresh Blob URL, then runtime objectUrl,
+ * and falls back to a valid generated PDF for seeded curriculum materials.
+ */
+export function resolveMaterialPdfUrl(mat: LearningMaterial): string {
+  if (mat.pdfDataUrl) {
+    return dataUrlToBlobUrl(mat.pdfDataUrl);
+  }
+  if (mat.pdfObjectUrl && !mat.pdfObjectUrl.startsWith('blob:')) {
+    return mat.pdfObjectUrl;
+  }
+  return buildGeneratedPdfBlobUrl({
+    title: mat.title,
+    subjectName: mat.subjectName,
+    authorName: mat.authorName,
+    level: mat.level,
+    gradeLevel: mat.gradeLevel,
+    summary: mat.summary,
+    contentMarkdown: mat.contentMarkdown || mat.summary,
+  });
 }

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Award, Flame, Gamepad2, ShieldCheck, BookOpen, FileBadge2 } from 'lucide-react';
 import { SEED_GAMES, SEED_MATERIALS, SEED_REPORT_CARD } from '../lib/seed-data';
 import { useTenantAndDemo } from '../context/TenantAndDemoContext';
+import { PdfMaterialViewerModal } from '../components/materials/PdfMaterialViewerModal';
 import type { EducationalGame, LearningMaterial, ReportCardDTO } from '../types/lms';
 
 const CLASS_LEADERBOARD = [
@@ -14,10 +15,11 @@ const CLASS_LEADERBOARD = [
 ];
 
 export function StudentDashboardPage() {
-  const { uploadedMaterials, aiGames } = useTenantAndDemo();
+  const { uploadedMaterials, aiGames, activeExamPackets } = useTenantAndDemo();
   const [serverGames, setServerGames] = useState<EducationalGame[]>(SEED_GAMES);
   const [serverMaterials, setServerMaterials] = useState<LearningMaterial[]>(SEED_MATERIALS);
   const [rapor, setRapor] = useState<ReportCardDTO>(SEED_REPORT_CARD);
+  const [previewMaterial, setPreviewMaterial] = useState<LearningMaterial | null>(null);
 
   useEffect(() => {
     fetch('/api/games')
@@ -61,12 +63,14 @@ export function StudentDashboardPage() {
       <div className="grid gap-5 lg:grid-cols-12">
         <div className="lg:col-span-8 rounded-2xl border border-slate-200 bg-white p-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div>
-            <p className="text-xs font-semibold text-brand-primary">JADWAL UJIAN HARI INI</p>
+            <p className="text-xs font-semibold text-brand-primary">
+              JADWAL UJIAN HARI INI · {Math.max(1, activeExamPackets.length)} PAKET CBT AKTIF
+            </p>
             <h1 className="mt-1 text-xl font-extrabold text-slate-900">
-              UAS Ganjil: Informatika & Literasi Digital
+              {activeExamPackets[0]?.title || 'UAS Ganjil: Informatika & Literasi Digital'}
             </h1>
             <p className="mt-1 text-sm text-slate-600">
-              Durasi 60 menit · Token Aktif dibagikan oleh Pengawas Ruang CBT.
+              Durasi {activeExamPackets[0]?.durationMinutes || 60} menit · Token Aktif dibagikan oleh Pengawas Ruang / Guru.
             </p>
           </div>
           <Link
@@ -145,23 +149,24 @@ export function StudentDashboardPage() {
               </Link>
             </div>
             <div className="mt-4 divide-y divide-slate-100">
-              {recentMaterials.slice(0, 3).map((m) => (
+              {recentMaterials.slice(0, 4).map((m) => (
                 <div key={m.id} className="flex items-center justify-between gap-4 py-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <BookOpen className="h-5 w-5 shrink-0 text-brand-secondary" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-slate-900">{m.title}</p>
                       <p className="truncate text-xs text-slate-500">
-                        {m.subjectName} · Estimasi {m.readMinutes} menit
+                        {m.subjectName} · {m.authorName} · Estimasi {m.readMinutes} menit
                       </p>
                     </div>
                   </div>
-                  <Link
-                    to="/materials"
-                    className="text-xs font-semibold text-brand-primary hover:underline whitespace-nowrap shrink-0"
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMaterial(m)}
+                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-brand-primary hover:border-brand-primary whitespace-nowrap shrink-0"
                   >
-                    Baca
-                  </Link>
+                    {m.materialType === 'MODUL_PDF' ? 'Baca PDF' : 'Baca'}
+                  </button>
                 </div>
               ))}
             </div>
@@ -247,6 +252,11 @@ export function StudentDashboardPage() {
           </section>
         </div>
       </div>
+
+      <PdfMaterialViewerModal
+        material={previewMaterial}
+        onClose={() => setPreviewMaterial(null)}
+      />
     </div>
   );
 }

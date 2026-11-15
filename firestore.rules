@@ -1,0 +1,181 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Shared hardened primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isEmailVerified() && (
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        request.auth.token.email == 'alfathblv@gmail.com'
+      );
+    }
+
+    function isValidRole(role) {
+      return role in ['TEACHER', 'STUDENT', 'SCHOOL_ADMIN', 'OPERATIONAL', 'PARENT'];
+    }
+
+    // Validation Blueprint: UserPublicProfile (no PII)
+    function isValidUserPublicProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'displayName', 'role', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120
+        && data.role is string && data.role.size() <= 24 && isValidRole(data.role)
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: UserPrivateInfo (isolated PII)
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'email', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 160
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: UserPreferences
+    function isValidUserPreferences(data) {
+      return data.keys().hasAll(['uid', 'language', 'lastActiveRole', 'favoriteSubjects', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'language', 'lastActiveRole', 'favoriteSubjects', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.language is string && data.language.size() <= 5 && data.language in ['id', 'en']
+        && data.lastActiveRole is string && data.lastActiveRole.size() <= 24 && isValidRole(data.lastActiveRole)
+        && data.favoriteSubjects is list && data.favoriteSubjects.size() <= 10
+        && (data.favoriteSubjects.size() == 0 || (data.favoriteSubjects[0] is string && data.favoriteSubjects[0].size() >= 1 && data.favoriteSubjects[0].size() <= 60))
+        && data.updatedAt is timestamp;
+    }
+
+    // Validation Blueprint: StudyBookmark
+    function isValidStudyBookmark(data) {
+      return data.keys().hasAll(['id', 'userId', 'itemType', 'itemSlug', 'itemTitle', 'subjectName', 'createdAt'])
+        && data.keys().hasOnly(['id', 'userId', 'itemType', 'itemSlug', 'itemTitle', 'subjectName', 'createdAt'])
+        && isValidId(data.id)
+        && isValidId(data.userId)
+        && data.itemType is string && data.itemType.size() <= 16 && data.itemType in ['MATERIAL', 'GAME']
+        && data.itemSlug is string && data.itemSlug.size() >= 1 && data.itemSlug.size() <= 120
+        && data.itemTitle is string && data.itemTitle.size() >= 1 && data.itemTitle.size() <= 160
+        && data.subjectName is string && data.subjectName.size() >= 1 && data.subjectName.size() <= 80
+        && data.createdAt is timestamp;
+    }
+
+    // /users/{userId}: non-PII public profile
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if false;
+      allow create: if isEmailVerified()
+        && isValidId(userId)
+        && isValidUserPublicProfile(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().uid == userId
+        && (incoming().role == 'STUDENT' || isAdmin())
+        && incoming().updatedAt == request.time;
+      allow update: if isEmailVerified()
+        && isValidId(userId)
+        && isValidUserPublicProfile(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (
+            isOwner(userId)
+            && incoming().role == existing().role
+            && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])
+          )
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // /users/{userId}/private/{docId}: isolated PII subcollection
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if false;
+        allow create: if isEmailVerified()
+          && isValidId(userId)
+          && isValidId(docId)
+          && docId == 'info'
+          && isOwner(userId)
+          && isValidUserPrivateInfo(incoming())
+          && incoming().uid == request.auth.uid
+          && incoming().updatedAt == request.time;
+        allow update: if isEmailVerified()
+          && isValidId(userId)
+          && isValidId(docId)
+          && docId == 'info'
+          && (isOwner(userId) || isAdmin())
+          && isValidUserPrivateInfo(incoming())
+          && incoming().uid == existing().uid
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+        allow delete: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+      }
+    }
+
+    // /admins/{userId}: server-managed only
+    match /admins/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // /userPreferences/{userId}: user-owned LMS preferences
+    match /userPreferences/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if false;
+      allow create: if isEmailVerified()
+        && isValidId(userId)
+        && isOwner(userId)
+        && isValidUserPreferences(incoming())
+        && incoming().uid == request.auth.uid
+        && incoming().updatedAt == request.time;
+      allow update: if isEmailVerified()
+        && isValidId(userId)
+        && (isOwner(userId) || isAdmin())
+        && isValidUserPreferences(incoming())
+        && incoming().uid == existing().uid
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['language', 'lastActiveRole', 'favoriteSubjects', 'updatedAt']);
+      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
+    }
+
+    // /studyBookmarks/{bookmarkId}: user-owned material/game bookmarks
+    match /studyBookmarks/{bookmarkId} {
+      allow get: if isValidId(bookmarkId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isEmailVerified()
+        && isValidId(bookmarkId)
+        && isValidStudyBookmark(incoming())
+        && incoming().id == bookmarkId
+        && incoming().userId == request.auth.uid
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isEmailVerified() && isValidId(bookmarkId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+  }
+}

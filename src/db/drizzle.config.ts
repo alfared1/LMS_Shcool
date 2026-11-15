@@ -1,0 +1,39 @@
+import { defineConfig } from 'drizzle-kit';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
+
+const connectionString =
+  process.env.DATABASE_URL ||
+  process.env.POSTGRES_URL ||
+  process.env.POSTGRES_PRISMA_URL;
+
+const sqlHost = process.env.SQL_HOST;
+const sqlDbName = process.env.SQL_DB_NAME;
+const user = process.env.SQL_ADMIN_USER;
+const password = process.env.SQL_ADMIN_PASSWORD;
+
+if (!connectionString && (!sqlHost || !sqlDbName || !user || !password)) {
+  throw new Error(
+    'Set DATABASE_URL/POSTGRES_URL or SQL_HOST, SQL_DB_NAME, SQL_ADMIN_USER, and SQL_ADMIN_PASSWORD.'
+  );
+}
+
+export default defineConfig({
+  schema: './src/db/schema.ts',
+  out: './drizzle',
+  dialect: 'postgresql',
+  schemaFilter: ['public'],
+  dbCredentials: connectionString
+    ? {
+        url: connectionString,
+      }
+    : {
+        host: sqlHost!,
+        user: user!,
+        password: password!,
+        database: sqlDbName!,
+        ssl: false,
+      },
+  verbose: true,
+});
